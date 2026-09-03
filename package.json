@@ -1,0 +1,39 @@
+{
+  "name": "castle-game",
+  "version": "0.1.0",
+  "private": true,
+  "description": "《城堡》——原创扑克筹码游戏，网页版多人在线对战",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,client -c yellow,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch packages/server/src/index.ts",
+    "dev:client": "vite --config packages/client/vite.config.ts",
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "esbuild packages/server/src/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=packages/server/dist/index.js",
+    "build:client": "vite build --config packages/client/vite.config.ts",
+    "start": "node packages/server/dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/node": "^24.0.0",
+    "@vp-tw/cjk-web-fonts-fusion-pixel-font": "^0.0.1",
+    "concurrently": "^9.1.2",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true
+  }
+}

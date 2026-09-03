@@ -1,0 +1,130 @@
+/* ============ 卡牌：双面翻转 / 像素牌面 ============ */
+
+.card {
+  width: var(--card-w);
+  height: var(--card-h);
+  perspective: 400px;
+  flex: none;
+  position: relative;
+}
+
+.card .card-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.card.up .card-inner { transform: rotateY(180deg); }
+
+.card .face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border: 2px solid var(--card-edge);
+  box-shadow:
+    inset 0 0 0 2px var(--card-face),
+    inset 0 0 0 3px var(--card-edge),
+    2px 3px 0 #00000066;
+}
+
+.card .face.front {
+  background: var(--card-face);
+  transform: rotateY(180deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card .face.back {
+  background:
+    repeating-linear-gradient(45deg, #2b3a67 0 4px, #22305a 4px 8px);
+  box-shadow:
+    inset 0 0 0 3px var(--card-face),
+    inset 0 0 0 4px var(--card-edge),
+    2px 3px 0 #00000066;
+}
+
+/* 卡背中央的城堡垛口 */
+.card .face.back::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 24px;
+  height: 20px;
+  background: var(--card-face);
+  clip-path: polygon(
+    0 100%, 0 40%, 16% 40%, 16% 20%, 32% 20%, 32% 40%, 44% 40%, 44% 0,
+    56% 0, 56% 40%, 68% 40%, 68% 20%, 84% 20%, 84% 40%, 100% 40%, 100% 100%
+  );
+  opacity: 0.9;
+}
+
+.card .corner {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -1px;
+}
+
+.card .pip {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.card.red .corner,
+.card.red .pip { color: var(--red); }
+.card .corner, .card .pip { color: var(--ink); }
+
+/* 选中态 */
+.card.sel .card-inner {
+  transform: rotateY(180deg) translateY(-10px);
+}
+.card.sel::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 2px solid var(--gold);
+  pointer-events: none;
+}
+
+/* 胜者牌型用牌高亮 */
+.card.gold::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 3px solid var(--gold);
+  box-shadow: 0 0 0 1px var(--card-edge);
+  pointer-events: none;
+}
+
+/* 迷你牌（他人亮牌 / 出战区） */
+.card.mini { width: var(--card-mini-w); height: var(--card-mini-h); }
+.card.mini .corner { font-size: 10px; top: 2px; left: 2px; }
+.card.mini .pip { font-size: 16px; }
+
+/* 牌背小堆（他人手牌数量） */
+.backs { display: flex; gap: -8px; }
+.backs .mini-back {
+  width: 22px;
+  height: 32px;
+  margin-left: -8px;
+  background: repeating-linear-gradient(45deg, #2b3a67 0 3px, #22305a 3px 6px);
+  border: 1px solid var(--card-edge);
+  box-shadow: inset 0 0 0 1px var(--card-face);
+}
+.backs .mini-back:first-child { margin-left: 0; }
+
+/* 飞行中的临时卡牌 */
+.fly-card {
+  position: fixed;
+  z-index: 180;
+  pointer-events: none;
+  will-change: transform;
+}
