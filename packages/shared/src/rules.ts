@@ -225,14 +225,14 @@ function updateMaxBet(s: GameState) {
 function newRound(s: GameState, now: number, events: GameEvent[]) {
   const alive = survivors(s);
   const roundNo = (s.round?.roundNo ?? 0) + 1;
-  // ---- 备战：所有牌回牌堆，重洗，补发 6 张 ----
+  // ---- 备战：打出去的牌回牌堆重洗；未使用的手牌继承，只补足到 6 张 ----
   const deck = s.secret!.deck;
+  const keptHands = new Map<number, Card[]>();
   for (const p of allPlayers(s)) {
-    deck.push(...p.battlefield);
+    deck.push(...p.battlefield); // 出战区的牌（含弃牌者的）全部回池
     p.battlefield = [];
     p.playSegments = [];
-    deck.push(...s.secret!.hands[p.seat]);
-    s.secret!.hands[p.seat] = [];
+    keptHands.set(p.seat, s.secret!.hands[p.seat] ?? []); // 手牌继承
     p.betTotal = 0;
     p.invested = 0;
     p.escrow = 0;
@@ -243,10 +243,15 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
   }
   const shuffled = shuffle(deck, s.secret!.seed);
   s.secret!.seed = shuffled.seed;
+  const pool = shuffled.arr;
   for (const p of alive) {
-    s.secret!.hands[p.seat] = shuffled.arr.splice(0, HAND_SIZE);
+    const hand = keptHands.get(p.seat) ?? [];
+    while (hand.length < HAND_SIZE && pool.length > 0) {
+      hand.push(pool.pop()!);
+    }
+    s.secret!.hands[p.seat] = hand;
   }
-  s.secret!.deck = shuffled.arr;
+  s.secret!.deck = pool;
 
   // ---- 底注 ----
   const ante = s.settings.ante;

@@ -502,6 +502,45 @@ describe('筹码倍数', () => {
   });
 });
 
+describe('备战继承手牌', () => {
+  it('未使用手牌保留到下一回合，只补足 6 张', () => {
+    const { s: s0, declarerSeat } = newGame(3);
+    let s = s0;
+    const other1 = nextVoterOf(s, declarerSeat);
+    const other2 = nextVoterOf(s, other1);
+    replaceHands(s, {
+      [declarerSeat]: ['♠A', '♥A', '♦K', '♣Q', '♦9', '♥3'],
+      [other1]: ['♥K', '♣K', '♠5', '♣4', '♦3', '♥2'],
+      [other2]: ['♠6', '♣7', '♦4', '♣5', '♠9', '♣J'],
+    });
+    for (const seat of [declarerSeat, other1, other2]) s = act(s, seat, { t: 'pass_defense' });
+    s = act(s, declarerSeat, { t: 'play', cardIds: ['♠A', '♥A'], bet: 1 });
+    s = act(s, other1, { t: 'play', cardIds: ['♥K', '♣K'], bet: 1 });
+    s = act(s, other2, { t: 'fold' });
+    s = act(s, declarerSeat, { t: 'agree_end', agree: true });
+    s = act(s, other1, { t: 'agree_end', agree: true });
+
+    // 记录各家未使用手牌
+    const kept: Record<number, string[]> = {};
+    for (const p of s.players) {
+      if (!p) continue;
+      kept[p.seat] = s.secret!.hands[p.seat].map((c) => c.id);
+    }
+
+    const t = tick(s, T0 + 1000 + TIMING.settlementMs + 1);
+    s = t.state;
+    expect(s.round!.roundNo).toBe(2);
+    // 上一回合没用过的牌必须还在手里
+    for (const p of s.players) {
+      if (!p) continue;
+      const now = new Set(s.secret!.hands[p.seat].map((c) => c.id));
+      expect(s.secret!.hands[p.seat]).toHaveLength(HAND_SIZE);
+      for (const id of kept[p.seat]) expect(now.has(id)).toBe(true);
+    }
+    expect(cardTotal(s)).toBe(52);
+  });
+});
+
 describe('杂项校验', () => {
   it('错误的时机与角色被拒绝', () => {
     const { s, declarerSeat } = newGame(3);
@@ -510,7 +549,8 @@ describe('杂项校验', () => {
     const notDeclarer = nextVoterOf(s2, d2);
     expect(tryAct(s2, notDeclarer, { t: 'force_close_defense' })).toContain('只有宣战者');
     expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: [], escrow: 0 })).toContain('至少打出一张');
-    expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: ['♠A'], escrow: 200 })).toContain('超过你的筹码');
+    const hisCard = s2.secret!.hands[notDeclarer][0].id;
+    expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: [hisCard], escrow: 200 })).toContain('超过你的筹码');
   });
 
   it('防守声明后本回合被锁定', () => {

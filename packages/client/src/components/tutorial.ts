@@ -188,7 +188,7 @@ function buildContent(v: PlayerView, step: StepId): StepContent {
           `比牌规则：<em>①牌型排名 → ②杂牌少者胜 → ③最大牌 → ④花色</em>。`,
           best ? `本局最大：<em>${best.handAlias}·${best.handName}</em>（${v.players.find((p) => p.seat === best.seat)?.name}），独吞奖池 ${chip(r.potAmount)}。` : '',
           mine ? `你的牌型是 ${handLabel(mine.typeRank)} · 用 ${mine.usedIds.length} 张 · 杂 ${mine.junk}。${iWin ? '漂亮！' : '下次记住：杂牌越少越硬。'}` : '',
-          '接下来全部牌回牌堆重洗、每人补 6 张——你已经完整走过一遍流程了！',
+          '接下来打出去的牌回牌堆，<em>没打出去的手牌会保留到下一回合</em>，只补足到 6 张——你已经完整走过一遍流程了！',
         ],
         highlight: null,
       };
