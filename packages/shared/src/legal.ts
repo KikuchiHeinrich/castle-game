@@ -76,25 +76,25 @@ export function legalActions(s: GameState, seat: number): LegalActions {
   if (p.battlefield.length >= 1) {
     base.canAddCards = base.handCount >= 1;
     const min = Math.max(0, r.maxBet - p.betTotal);
-    const max = Math.min(p.chips, p.battlefield.length - p.betTotal);
+    const max = Math.min(p.chips, p.battlefield.length * s.settings.chipMultiplier - p.betTotal);
     base.canAddChips = max >= min && max >= 0 ? { min, max } : null;
     base.canAgree = p.battlefield.length >= 1 && p.betTotal >= r.maxBet;
   } else {
     // 出战区为空：rotation 中首次出牌须押 ≥ maxBet，检查是否凑得出
-    base.canPlay = base.canPlay && canAffordBet(base.handCount, p.chips, r.maxBet);
+    base.canPlay = base.canPlay && canAffordBet(base.handCount, p.chips, r.maxBet, s.settings.chipMultiplier);
   }
   return base;
 }
 
-/** 用 n 张牌（押注 ≤ n）与 chips 筹码能否凑出 ≥ target 的押注 */
-export function canAffordBet(nCards: number, chips: number, target: number): boolean {
-  return Math.min(nCards, chips) >= target;
+/** 用 n 张牌（押注 ≤ n×倍数）与 chips 筹码能否凑出 ≥ target 的押注 */
+export function canAffordBet(nCards: number, chips: number, target: number, mult = 1): boolean {
+  return Math.min(nCards * mult, chips) >= target;
 }
 
 /** 加 n 张牌后允许的押注增量范围 [min, max]，不合法返回 null */
-export function addCardsBetRange(p: { betTotal: number; chips: number; battlefieldCount: number }, n: number, maxBet: number): { min: number; max: number } | null {
+export function addCardsBetRange(p: { betTotal: number; chips: number; battlefieldCount: number }, n: number, maxBet: number, mult = 1): { min: number; max: number } | null {
   const min = Math.max(0, maxBet - p.betTotal);
-  const max = Math.min(p.chips, p.battlefieldCount + n - p.betTotal);
+  const max = Math.min(p.chips, (p.battlefieldCount + n) * mult - p.betTotal);
   if (max < min || max < 0) return null;
   return { min, max };
 }

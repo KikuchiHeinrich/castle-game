@@ -478,6 +478,30 @@ describe('单张出牌不明牌', () => {
   });
 });
 
+describe('筹码倍数', () => {
+  it('倍数 2 时，2 张牌最多押 4', () => {
+    let s = createGameState('MUL1', { chipMultiplier: 2 });
+    for (let i = 0; i < 2; i++) addPlayer(s, `P${i}`);
+    const g = startGame(s, 0, 7, T0);
+    if (!g.ok) throw new Error(g.error);
+    s = g.state;
+    const d = s.round!.declarerSeat;
+    const a = nextVoterOf(s, d);
+    replaceHands(s, {
+      [d]: ['♠A', '♥A', '♦K', '♣Q', '♦9', '♥3'],
+      [a]: ['♥K', '♣K', '♠5', '♣4', '♦3', '♥2'],
+    });
+    for (let i = 0; i < 2; i++) s = act(s, i, { t: 'pass_defense' }, T0 + 1000);
+    // 2 张牌 ×2 倍 = 押 4 合法；押 5 拒绝
+    s = act(s, d, { t: 'play', cardIds: ['♠A', '♥A'], bet: 4 }, T0 + 2000);
+    expect(seatOf(s, d).betTotal).toBe(4);
+    const err = tryAct(s, a, { t: 'play', cardIds: ['♥K', '♣K', '♠5'], bet: 7 });
+    expect(err).toContain('不能超过出牌数 × 筹码倍数');
+    s = act(s, a, { t: 'play', cardIds: ['♥K', '♣K', '♠5'], bet: 6 }, T0 + 3000);
+    expect(s.round!.maxBet).toBe(6);
+  });
+});
+
 describe('杂项校验', () => {
   it('错误的时机与角色被拒绝', () => {
     const { s, declarerSeat } = newGame(3);

@@ -2,6 +2,7 @@ import type { PlayerView } from '../../../shared/src/index';
 import { bestHandCards, cardLabel } from '../../../shared/src/index';
 import { handLabel } from './drawer';
 import { avatarSVG, AVATAR_NAME, type Mood } from './pixelAvatar';
+import { sfx } from './sfx';
 
 /**
  * 新手教学 v3：对话式分步指导。
@@ -213,44 +214,79 @@ function buildContent(v: PlayerView, step: StepId): StepContent {
 let selectedIdsCache: string[] = [];
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** HTML 感知的逐字打字机：标签整体出现，文字逐字浮出；点卡片可跳过 */
-function typeLines(container: HTMLElement, lines: string[], token: number): Promise<void> {
-  container.innerHTML = '';
-  container.classList.add('typing');
-  let skipped = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const skip = () => (skipped = true);
-  (container as HTMLElement & { __skip?: () => void }).__skip = skip;
+/** 标点节奏：一句话的"语气"靠不同长度的停顿体现 */
+function charDelay(ch: string): number {
+  if ('，、'.includes(ch)) return 130;
+  if ('。！？…'.includes(ch)) return 340;
+  if ('：；'.includes(ch)) return 170;
+  return 26;
+}
 
-  const run = async () => {
-    for (const line of lines) {
-      const p = document.createElement('p');
-      container.appendChild(p);
-      const stack: HTMLElement[] = [p];
-      const parts = line.split(/(<\/?[a-z]+[^>]*>)/i).filter((s) => s !== '');
-      for (const part of parts) {
-        if (part.startsWith('<')) {
-          const m = part.match(/<\/?([a-z]+)/i);
-          if (!m) continue;
-          const tag = m[1].toLowerCase();
-          if (part.startsWith('</')) stack.pop();
-          else {
-            const el = document.createElement(tag);
-            stack[stack.length - 1].appendChild(el);
-            stack.push(el);
-          }
-        } else {
-          for (const ch of part) {
-            if (token !== typeToken) return; // 步骤已切换/教学已退出
-            stack[stack.length - 1].append(ch);
-            if (!skipped) await sleep(26);
+let advancer: (() => void) | null = null;
+
+function waitAdvance(token: number): Promise<void> {
+  return new Promise((resolve) => {
+    advancer = () => {
+      if (token !== typeToken) return resolve();
+      advancer = null;
+      resolve();
+    };
+  });
+}
+
+/** HTML 感知的逐字打字机：逐段打出，每段结束等待玩家点击确认 */
+async function typeLines(container: HTMLElement, lines: string[], token: number): Promise<void> {
+  container.innerHTML = '';
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let skipPara = false;
+  advancer = () => (skipPara = true);
+
+  const typeParagraph = async (p: HTMLElement, html: string) => {
+    const stack: HTMLElement[] = [p];
+    const parts = html.split(/(<\/?[a-z]+[^>]*>)/i).filter((s) => s !== '');
+    for (const part of parts) {
+      if (part.startsWith('<')) {
+        const m = part.match(/<\/?(?:([a-z]+))/i);
+        if (!m) continue;
+        if (part.startsWith('</')) stack.pop();
+        else {
+          const el = document.createElement(m[1].toLowerCase());
+          stack[stack.length - 1].appendChild(el);
+          stack.push(el);
+        }
+      } else {
+        for (const ch of part) {
+          if (token !== typeToken) return;
+          stack[stack.length - 1].append(ch);
+          if (!skipPara) {
+            sfx.type();
+            await sleep(charDelay(ch));
           }
         }
       }
-      if (!skipped && token === typeToken) await sleep(160); // 段落间停顿
     }
-    container.classList.remove('typing');
   };
-  return run();
+
+  for (let i = 0; i < lines.length; i++) {
+    const p = document.createElement('p');
+    container.appendChild(p);
+    await typeParagraph(p, lines[i]);
+    if (token !== typeToken) return;
+    const last = i === lines.length - 1;
+    if (!last && !reduced) {
+      // 段落确认提示 ▼
+      const marker = document.createElement('div');
+      marker.className = 'tut-next';
+      marker.textContent = '▼ 点击继续';
+      container.appendChild(marker);
+      await waitAdvance(token);
+      marker.remove();
+      if (token !== typeToken) return;
+    } else if (!last && reduced) {
+      continue;
+    }
+  }
+  container.classList.remove('typing');
 }
 
 /** 每次状态渲染时调用：维护教学大卡片（打字只在步骤切换时重播） */
@@ -271,7 +307,7 @@ export function renderTutorial(v: PlayerView, selectedIds: string[]) {
   const mood = c.mood;
   if (portrait && portrait.dataset.mood !== mood) {
     portrait.dataset.mood = mood;
-    portrait.innerHTML = avatarSVG(mood, 5);
+    portrait.innerHTML = avatarSVG('shirley', mood, 5);
   }
 
   if (renderedStep !== step) {
@@ -311,15 +347,12 @@ export function renderTutorial(v: PlayerView, selectedIds: string[]) {
     };
 
     el.onclick = () => {
-      (textEl as HTMLElement & { __skip?: () => void }).__skip?.();
+      sfx.click();
+      advancer?.();
     };
     void typeLines(textEl, c.lines, token).then(() => {
-      if (token === typeToken) {
-        el.onclick = null;
-        showButtons();
-      }
+      if (token === typeToken) showButtons();
     });
-    showButtons(); // 按钮先就位，打字同时可点（跳过文字）
   }
 
   // 高亮指引区域

@@ -87,15 +87,15 @@ export function request<T extends AckResult>(event: string, payload: unknown = {
 
 // ---- 高层动作 ----
 
-export async function createRoom(name: string, settings?: Partial<RoomSettings>) {
-  const res = await request<{ ok: boolean; error?: string; roomCode: string; seat: number; token: string }>('room:create', { name, settings });
+export async function createRoom(name: string, settings?: Partial<RoomSettings>, avatar?: string) {
+  const res = await request<{ ok: boolean; error?: string; roomCode: string; seat: number; token: string }>('room:create', { name, settings, avatar });
   if (!res.ok) return toast(res.error ?? '创建失败');
   saveSession(res.roomCode, res.token);
   setScreen('room');
 }
 
-export async function joinRoom(roomCode: string, name: string) {
-  const res = await request<{ ok: boolean; error?: string; roomCode: string; seat: number; token: string }>('room:join', { roomCode, name });
+export async function joinRoom(roomCode: string, name: string, avatar?: string) {
+  const res = await request<{ ok: boolean; error?: string; roomCode: string; seat: number; token: string }>('room:join', { roomCode, name, avatar });
   if (!res.ok) return toast(res.error ?? '加入失败');
   saveSession(res.roomCode, res.token);
   setScreen('room');

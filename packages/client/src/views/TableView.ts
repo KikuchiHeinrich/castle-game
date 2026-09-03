@@ -1,12 +1,13 @@
-import type { Card, PlayerView, PlaySegment, PublicPlayer } from '../../../shared/src/index';
+import type { Card, PlayerView, PlaySegment, PublicPlayer, ShowdownEntry } from '../../../shared/src/index';
 import { bestHandCards, cardLabel } from '../../../shared/src/index';
 import { createCard } from '../components/card';
 import { renderHandTypes, toggleDrawer, handLabel } from '../components/drawer';
 import { gameAction, rematch } from '../net/socket';
 import { getState, patchUI, toggleSelect } from '../store';
-import { setFxHooks } from '../anim';
+import { setFxHooks, isBusy } from '../anim';
 import { renderTutorial, tutorialActive } from '../components/tutorial';
 import { avatarSVG } from '../components/pixelAvatar';
+import { sfx, isMuted, toggleMute } from '../components/sfx';
 
 /**
  * 桌面主视图 v2 —— 结构化三段式布局：
@@ -25,6 +26,7 @@ let els: {
   countdown: HTMLElement;
   youPlayed: HTMLElement;
   ownStatus: HTMLElement;
+  betDock: HTMLElement;
   hand: HTMLElement;
   actionBar: HTMLElement;
   log: HTMLElement;
@@ -33,6 +35,7 @@ let els: {
 } | null = null;
 
 let countdownRaf = 0;
+let lastTickSecond = -1;
 const logLines: string[] = [];
 let animateTopsFlag = false;
 
@@ -43,6 +46,7 @@ export function mountTable(root: HTMLElement) {
         <span class="room-code">${getState().view?.code ?? ''}</span>
         <span class="round-info" id="round-info"></span>
         <span class="spacer"></span>
+        <button id="btn-mute" class="ghost">🔊</button>
         <button id="btn-types" class="ghost">牌型表</button>
         <button id="btn-exit" class="ghost">退出</button>
       </div>
@@ -64,6 +68,7 @@ export function mountTable(root: HTMLElement) {
       <div id="you-zone">
         <div id="you-played"></div>
         <div id="own-status"></div>
+        <div id="bet-dock"></div>
         <div id="hand"></div>
       </div>
       <div id="action-bar"></div>
@@ -82,6 +87,7 @@ export function mountTable(root: HTMLElement) {
     countdown: root.querySelector('#countdown')!,
     youPlayed: root.querySelector('#you-played')!,
     ownStatus: root.querySelector('#own-status')!,
+    betDock: root.querySelector('#bet-dock')!,
     hand: root.querySelector('#hand')!,
     actionBar: root.querySelector('#action-bar')!,
     log: root.querySelector('#log')!,
@@ -89,7 +95,17 @@ export function mountTable(root: HTMLElement) {
     drawer: root.querySelector('#drawer')!,
   };
   renderHandTypes(els.drawer);
-  root.querySelector('#btn-types')!.addEventListener('click', () => toggleDrawer());
+  root.querySelector('#btn-types')!.addEventListener('click', () => {
+    sfx.click();
+    toggleDrawer();
+  });
+  const muteBtn = root.querySelector('#btn-mute') as HTMLButtonElement;
+  muteBtn.textContent = isMuted() ? '🔇' : '🔊';
+  muteBtn.addEventListener('click', () => {
+    const m = toggleMute();
+    muteBtn.textContent = m ? '🔇' : '🔊';
+    if (!m) sfx.click();
+  });
   root.querySelector('#btn-exit')!.addEventListener('click', () => {
     sessionStorage.clear();
     location.href = '/';
@@ -102,24 +118,15 @@ export function mountTable(root: HTMLElement) {
     seatEl: (seat) => root.querySelector(`.opp-card[data-seat="${seat}"]`) as HTMLElement | null,
     bfZoneEl: (seat) => root.querySelector(`.opp-card[data-seat="${seat}"] .opp-segs`) as HTMLElement | null,
     handEl: () => els?.hand ?? null,
-    ownBattlefieldEl: () => els?.youPlayed ?? null,
+    ownPlayedEl: () => els?.youPlayed ?? null,
     potEl: () => root.querySelector('#pot-block') as HTMLElement | null,
     deckEl: () => els?.opponents ?? null,
     discardEl: () => els?.opponents ?? null,
-    cardById: (id) => findPublicCard(id),
+    showdownPrepare: (entries) => prepareShowdown(entries),
+    verdict: (html) => verdictShow(html),
     banner,
     tweenPot: () => tweenNumber(els!.potNum, getState().view?.pot ?? 0),
   });
-}
-
-function findPublicCard(id: string) {
-  const v = getState().view;
-  if (!v) return null;
-  const all = [
-    ...v.players.flatMap((p) => p.playSegments.flatMap((s0) => (s0.top ? [s0.top] : []))),
-    ...(v.result?.entries.flatMap((e) => e.cards) ?? []),
-  ];
-  return all.find((c) => c.id === id) ?? null;
 }
 
 // ============ 总渲染入口 ============
@@ -132,8 +139,9 @@ export function render() {
   renderCenter(v);
   renderOwnStatus(v);
   renderActionBar(v);
+  renderBetDock(v);
   renderOverlay(v);
-  renderCards(false);
+  if (!isBusy()) renderCards(false); // 动画进行中不踩卡牌区
   renderCountdown(v);
   if (tutorialActive()) renderTutorial(v, getState().ui.selected);
 }
@@ -192,7 +200,7 @@ function renderOpponents(v: PlayerView) {
     if (head.dataset.key !== headKey) {
       head.dataset.key = headKey;
       head.innerHTML = `
-        <span class="opp-name">${p.isBot ? avatarSVG('neutral', 1.5) : ''}${p.name}${p.isHost ? '<span class="host-mark">👑</span>' : ''}
+        <span class="opp-name">${avatarSVG(p.avatar, 'neutral', 1.5)}${p.name}${p.isHost ? '<span class="host-mark">👑</span>' : ''}
           ${p.status === 'defended' ? '<span class="badge defense">防守</span>' : ''}
           ${p.agreeEnd ? '<span class="badge agree">同意</span>' : ''}
           ${p.away ? '<span class="badge away">托管</span>' : ''}
@@ -230,18 +238,21 @@ function oppClass(p: PublicPlayer, v: PlayerView): string {
   return cls.join(' ');
 }
 
-/** 一个"出牌段"簇：亮牌/暗牌 + 张数说明 */
-function segmentCluster(seg: { count: number; top: Card | null }): HTMLElement {
+/** 一个"出牌段"簇：显示该段全部实体牌（亮牌 + 牌背），与手牌同尺寸 */
+function segmentCluster(seg: { count: number; top: Card | null }, own = false): HTMLElement {
   const cluster = document.createElement('div');
   cluster.className = 'seg';
-  const node = createCard(seg.top, { mini: true, up: !!seg.top && !animateTopsFlag });
-  cluster.appendChild(node);
-  if (seg.top && animateTopsFlag) {
-    requestAnimationFrame(() => requestAnimationFrame(() => node.classList.add('up')));
+  for (let i = 0; i < seg.count; i++) {
+    const isTopCard = !!seg.top && i === 0;
+    const node = createCard(isTopCard ? seg.top : null, { up: (isTopCard && !animateTopsFlag) || own });
+    cluster.appendChild(node);
+    if (isTopCard && animateTopsFlag) {
+      requestAnimationFrame(() => requestAnimationFrame(() => node.classList.add('up')));
+    }
   }
   const label = document.createElement('span');
   label.className = 'seg-count';
-  label.textContent = seg.top ? `亮 ${seg.count} 张` : `暗 ${seg.count} 张`;
+  label.textContent = seg.top ? `亮牌 ×${seg.count}` : `暗牌 ×${seg.count}`;
   cluster.appendChild(label);
   return cluster;
 }
@@ -260,7 +271,7 @@ function renderSegs(el: HTMLElement, p: PublicPlayer, v: PlayerView, own: boolea
     const cluster = document.createElement('div');
     cluster.className = 'seg';
     for (const c of entry.cards) {
-      const node = createCard(c, { mini: !own, up: true });
+      const node = createCard(c, { up: true }); // 摊牌全明牌、全尺寸
       if (entry.usedIds.includes(c.id)) node.classList.add('gold');
       cluster.appendChild(node);
     }
@@ -280,7 +291,7 @@ function renderSegs(el: HTMLElement, p: PublicPlayer, v: PlayerView, own: boolea
     el.appendChild(tip);
     return;
   }
-  for (const seg of p.playSegments) el.appendChild(segmentCluster(seg));
+  for (const seg of p.playSegments) el.appendChild(segmentCluster(seg, own));
 }
 
 // ============ 中央奖池 ============
@@ -397,14 +408,15 @@ function renderOwnStatus(v: PlayerView) {
   const you = v.you;
   const bf = bestHandCards(you.battlefield);
   const bfText = bf ? `出战区 <b>${handLabel(bf.hand.typeRank)}</b> · 杂 ${bf.hand.junk}` : '出战区：空';
-  const key = `${you.chips}|${you.betTotal}|${you.battlefield.length}|${you.escrow}|${bf?.hand.typeRank ?? 0}|${v.pot}|${v.maxBet}`;
+  const key = `${you.avatar}|${you.chips}|${you.betTotal}|${you.battlefield.length}|${you.escrow}|${bf?.hand.typeRank ?? 0}|${v.pot}|${v.maxBet}`;
   if (el.dataset.key === key) return;
   el.dataset.key = key;
   el.innerHTML = `
+    <span class="own-av">${avatarSVG(you.avatar, 'neutral', 1.5)} <b>${you.name}</b></span><span class="sep">│</span>
     <span>💰 <b>${you.chips}</b></span><span class="sep">│</span>
     <span>已押 <b>${you.betTotal}</b>${you.escrow > 0 ? ` · 托管 <b>${you.escrow}</b>` : ''}</span><span class="sep">│</span>
     <span>${bfText}</span><span class="sep">│</span>
-    <span>押注上限 = 出战区牌数 <b>${you.battlefield.length}</b></span><span class="sep">│</span>
+    <span>押注上限 = 牌数 <b>${you.battlefield.length}</b> × 倍数 <b>${v.settings.chipMultiplier}</b></span><span class="sep">│</span>
     <span>🏺 <b>${v.pot}</b> · 最大押注 <b>${v.maxBet}</b></span>
   `;
 }
@@ -436,7 +448,7 @@ function onHandClick(e: Event) {
   renderActionBar(getState().view!);
 }
 
-// ============ 操作栏（逻辑不变，渲染目标更新） ============
+// ============ 操作栏（防守/同意/提示） + 押注坞（滑块+大按钮） ============
 
 function renderActionBar(v: PlayerView) {
   const bar = els!.actionBar;
@@ -444,30 +456,13 @@ function renderActionBar(v: PlayerView) {
   const la = you.legalActions;
   const ui = getState().ui;
   const selected = ui.selected;
-  const selCards = you.hand.filter((c) => selected.includes(c.id));
-  const key = JSON.stringify([v.roundPhase, la, selected, ui.bet, ui.escrow, you.agreeEnd, v.turnSeat, v.phase]);
+  const key = JSON.stringify([v.roundPhase, la.roundPhase, la.isYourTurn, la.canDeclareDefense, la.canPassDefense, la.canForceCloseDefense, la.canAgree, you.agreeEnd, you.status, you.defensePassed, v.turnSeat, v.phase, you.chips, ui.escrow, selected.length]);
   if (bar.dataset.key === key) return;
   bar.dataset.key = key;
   bar.innerHTML = '';
 
-  const addPreview = () => {
-    if (selected.length === 0) return;
-    const got = bestHandCards(selCards);
-    if (got) {
-      const top = got.used[got.used.length - 1];
-      const d = document.createElement('span');
-      d.className = 'preview';
-      d.textContent = `已选 ${handLabel(got.hand.typeRank)} · 用 ${got.used.length} · 杂 ${got.hand.junk} · 最大 ${top ? cardLabel(top) : '?'}`;
-      bar.appendChild(d);
-    }
-  };
-
-  if (v.phase === 'gameover') {
-    bar.innerHTML = `<span class="hint">对局结束</span>`;
-    return;
-  }
-  if (v.roundPhase === 'settlement') {
-    bar.innerHTML = `<span class="hint">结算中，马上进入下一回合…</span>`;
+  if (v.phase === 'gameover' || v.roundPhase === 'settlement') {
+    bar.innerHTML = `<span class="hint">${v.phase === 'gameover' ? '对局结束' : '结算中，马上进入下一回合…'}</span>`;
     return;
   }
 
@@ -482,46 +477,23 @@ function renderActionBar(v: PlayerView) {
     }
     const hint = document.createElement('span');
     hint.className = 'hint';
-    hint.textContent = `防守：牌数 ≤ 托管筹码（筹码 ${you.chips}）`;
+    hint.textContent = `防守：牌数 ≤ 托管筹码（筹码 ${you.chips}），选中手牌后点【宣布防守】`;
     bar.appendChild(hint);
-    addPreview();
-    if (selected.length > 0) {
-      const group = document.createElement('div');
-      group.className = 'slider-group';
-      const defMin = selected.length;
-      const defMax = you.chips;
-      const escrowVal = Math.min(Math.max(ui.escrow ?? defMin, defMin), defMax);
-      group.innerHTML = `<span class="hint">托管</span><input id="escrow" type="range" min="${defMin}" max="${defMax}" value="${escrowVal}" /><span class="val">${escrowVal}</span>`;
-      bar.appendChild(group);
-      const slider = group.querySelector<HTMLInputElement>('#escrow')!;
-      slider.addEventListener('input', () => {
-        group.querySelector('.val')!.textContent = slider.value;
-        patchUI({ escrow: Number(slider.value) });
-      });
-      const btn = document.createElement('button');
-      btn.className = 'primary';
-      btn.textContent = `宣布防守（${selected.length} 张 / 托管 ${escrowVal}）`;
-      btn.addEventListener('click', () => {
-        void gameAction({ t: 'declare_defense', cardIds: [...selected], escrow: Number(slider.value) }).then((ok) => {
-          if (ok) patchUI({ selected: [], escrow: null });
-        });
-      });
-      bar.appendChild(btn);
-    } else {
-      const tip = document.createElement('span');
-      tip.className = 'hint';
-      tip.textContent = '（先在下方手牌里点选要防守的牌）';
-      bar.appendChild(tip);
-    }
     const pass = document.createElement('button');
     pass.textContent = '不防守';
-    pass.addEventListener('click', () => void gameAction({ t: 'pass_defense' }));
+    pass.addEventListener('click', () => {
+      sfx.click();
+      void gameAction({ t: 'pass_defense' });
+    });
     bar.appendChild(pass);
     if (la.canForceCloseDefense) {
       const force = document.createElement('button');
       force.className = 'ghost';
       force.textContent = '直接开始（跳过等待）';
-      force.addEventListener('click', () => void gameAction({ t: 'force_close_defense' }));
+      force.addEventListener('click', () => {
+        sfx.click();
+        void gameAction({ t: 'force_close_defense' });
+      });
       bar.appendChild(force);
     }
     return;
@@ -534,120 +506,22 @@ function renderActionBar(v: PlayerView) {
     return;
   }
 
-  addPreview();
-
-  const chips = you.chips;
-  const bfCount = you.battlefield.length;
-
-  if (la.canPlay) {
-    const cap = Math.min(selected.length, chips);
-    const minBet = la.maxBet;
-    if (selected.length > 0 && cap >= minBet) {
-      const group = document.createElement('div');
-      group.className = 'slider-group';
-      const betVal = Math.max(minBet, Math.min(ui.bet ?? minBet, cap));
-      group.innerHTML = `<span class="hint">押注</span><input id="bet" type="range" min="${minBet}" max="${cap}" value="${betVal}" /><span class="val">${betVal}</span>`;
-      bar.appendChild(group);
-      const slider = group.querySelector<HTMLInputElement>('#bet')!;
-      slider.addEventListener('input', () => {
-        group.querySelector('.val')!.textContent = slider.value;
-        patchUI({ bet: Number(slider.value) });
-      });
-      const btn = document.createElement('button');
-      btn.className = 'primary';
-      btn.textContent = `出战 ${selected.length} 张`;
-      btn.addEventListener('click', () => {
-        void gameAction({ t: 'play', cardIds: [...selected], bet: Number(slider.value) }).then((ok) => {
-          if (ok) patchUI({ selected: [], bet: null });
-        });
-      });
-      bar.appendChild(btn);
-    } else {
-      const tip = document.createElement('span');
-      tip.className = 'hint';
-      tip.textContent =
-        selected.length === 0
-          ? '选 1~6 张手牌出战（张数 = 你的押注上限）'
-          : `押注须 ≥ ${minBet}，最多 ${cap}${cap < minBet ? ' —— 张数不够，多选几张' : ''}`;
-      bar.appendChild(tip);
-    }
-  } else if (bfCount > 0 && selected.length > 0 && la.canAddCards) {
-    const n = selected.length;
-    const min = Math.max(0, v.maxBet - you.betTotal);
-    const max = Math.min(chips, bfCount + n - you.betTotal);
-    if (max >= min) {
-      const group = document.createElement('div');
-      group.className = 'slider-group';
-      const delta = Math.max(min, Math.min(ui.bet ?? min, max));
-      group.innerHTML = `<span class="hint">加注</span><input id="delta" type="range" min="${min}" max="${max}" value="${delta}" /><span class="val">${delta}</span>`;
-      bar.appendChild(group);
-      const slider = group.querySelector<HTMLInputElement>('#delta')!;
-      slider.addEventListener('input', () => {
-        group.querySelector('.val')!.textContent = slider.value;
-        patchUI({ bet: Number(slider.value) });
-      });
-      const btn = document.createElement('button');
-      btn.className = 'primary';
-      btn.textContent = `加牌 ${n} 张`;
-      btn.addEventListener('click', () => {
-        void gameAction({ t: 'add_cards', cardIds: [...selected], betDelta: Number(slider.value) }).then((ok) => {
-          if (ok) patchUI({ selected: [], bet: null });
-        });
-      });
-      bar.appendChild(btn);
-    } else {
-      const tip = document.createElement('span');
-      tip.className = 'hint';
-      tip.textContent = `加 ${n} 张也押不满 ${v.maxBet}，试试多选几张或加注`;
-      bar.appendChild(tip);
-    }
-  } else if (bfCount > 0) {
+  // 出牌段相关提示（滑块和大按钮在 bet-dock）
+  const selN = selected.length;
+  if (you.battlefield.length === 0 && selN === 0) {
     const tip = document.createElement('span');
     tip.className = 'hint';
-    tip.textContent = '点选手牌可加牌；或直接操作：';
+    tip.textContent = '① 点选手牌 → ② 上方滑块押注 → ③ 点【出战】';
     bar.appendChild(tip);
-  }
-
-  if (la.canAddChips) {
-    const { min, max } = la.canAddChips;
-    const group = document.createElement('div');
-    group.className = 'slider-group';
-    const delta = Math.max(min, Math.min(ui.bet ?? min, max));
-    group.innerHTML = `<input id="chips" type="range" min="${min}" max="${max}" value="${delta}" /><span class="val">${delta}</span>`;
-    bar.appendChild(group);
-    const slider = group.querySelector<HTMLInputElement>('#chips')!;
-    slider.addEventListener('input', () => {
-      group.querySelector('.val')!.textContent = slider.value;
-      patchUI({ bet: Number(slider.value) });
-    });
-    const btn = document.createElement('button');
-    btn.textContent = `加注 ${delta}`;
-    btn.addEventListener('click', () => {
-      void gameAction({ t: 'add_chips', betDelta: Number(slider.value) }).then((ok) => {
-        if (ok) patchUI({ bet: null });
-      });
-    });
-    bar.appendChild(btn);
   }
 
   if (la.canAgree) {
     const btn = document.createElement('button');
     btn.textContent = you.agreeEnd ? '取消同意' : '同意结束';
     btn.className = you.agreeEnd ? '' : 'ghost';
-    btn.addEventListener('click', () => void gameAction({ t: 'agree_end', agree: !you.agreeEnd }));
-    bar.appendChild(btn);
-  }
-
-  if (la.canFold) {
-    const btn = document.createElement('button');
-    btn.className = 'danger';
-    btn.textContent = '弃牌';
     btn.addEventListener('click', () => {
-      if (confirm('确定弃牌？已押筹码将进入奖池且无法收回。')) {
-        void gameAction({ t: 'fold' }).then((ok) => {
-          if (ok) patchUI({ selected: [], bet: null });
-        });
-      }
+      sfx.click();
+      void gameAction({ t: 'agree_end', agree: !you.agreeEnd });
     });
     bar.appendChild(btn);
   }
@@ -655,6 +529,174 @@ function renderActionBar(v: PlayerView) {
   if (bar.children.length === 0) {
     bar.innerHTML = `<span class="hint">等待中…</span>`;
   }
+}
+
+/** 押注坞：滑块 + 大按钮（出战/加牌/加注） + 大号弃牌，位于手牌上方 */
+function renderBetDock(v: PlayerView) {
+  const dock = els!.betDock;
+  const you = v.you;
+  const la = you.legalActions;
+  const ui = getState().ui;
+  const selected = ui.selected;
+  const selCards = you.hand.filter((c) => selected.includes(c.id));
+  const mult = v.settings.chipMultiplier;
+  const key = JSON.stringify([v.roundPhase, la, selected, ui.bet, ui.escrow, v.turnSeat, v.phase]);
+  if (dock.dataset.key === key) return;
+  dock.dataset.key = key;
+  dock.innerHTML = '';
+
+  const show =
+    v.phase === 'playing' &&
+    (v.roundPhase === 'opening' || v.roundPhase === 'rotation') &&
+    la.isYourTurn &&
+    you.status === 'active';
+  if (!show) {
+    dock.style.display = 'none';
+    return;
+  }
+  dock.style.display = '';
+
+  const addPreview = () => {
+    if (selected.length === 0) return;
+    const got = bestHandCards(selCards);
+    if (got) {
+      const top = got.used[got.used.length - 1];
+      const d = document.createElement('span');
+      d.className = 'preview';
+      d.textContent = `已选 ${handLabel(got.hand.typeRank)} · 最大 ${top ? cardLabel(top) : '?'} · 用 ${got.used.length} · 杂 ${got.hand.junk}`;
+      dock.appendChild(d);
+    }
+  };
+
+  const mkSlider = (id: string, label: string, min: number, max: number, val: number) => {
+    const group = document.createElement('div');
+    group.className = 'slider-group';
+    group.innerHTML = `<span class="hint">${label}</span><input id="${id}" type="range" min="${min}" max="${max}" value="${val}" /><span class="val">${val}</span>`;
+    const slider = group.querySelector<HTMLInputElement>(`#${id}`)!;
+    slider.addEventListener('input', () => {
+      group.querySelector('.val')!.textContent = slider.value;
+      patchUI({ bet: Number(slider.value) });
+      dock.dataset.key = ''; // 数值变化即时反映在按钮文字上
+      renderBetDock(v);
+    });
+    return group;
+  };
+
+  const bigBtn = (label: string, cls: string, fn: () => void) => {
+    const b = document.createElement('button');
+    b.className = `dock-btn ${cls}`;
+    b.textContent = label;
+    b.addEventListener('click', fn);
+    return b;
+  };
+
+  const commit = (fn: () => Promise<boolean>) =>
+    fn().then((ok) => {
+      if (ok) patchUI({ selected: [], bet: null });
+    });
+
+  if (la.canPlay && selected.length > 0) {
+    const cap = Math.min(selected.length * mult, you.chips);
+    const minBet = la.maxBet;
+    if (cap >= minBet) {
+      const betVal = Math.max(minBet, Math.min(ui.bet ?? Math.max(minBet, 1), cap));
+      dock.appendChild(mkSlider('bet', `押注（≤ ${cap}）`, minBet, cap, betVal));
+      dock.appendChild(
+        bigBtn(`⚔ 出战 ${selected.length} 张`, 'primary', () =>
+          commit(() => gameAction({ t: 'play', cardIds: [...selected], bet: Number(dock.querySelector('.val')!.textContent!) })),
+        ),
+      );
+    } else {
+      const tip = document.createElement('span');
+      tip.className = 'hint';
+      tip.textContent = `押注须 ≥ ${minBet}，当前最多 ${cap}${cap < minBet ? ' —— 张数不够，多选几张' : ''}`;
+      dock.appendChild(tip);
+    }
+  } else if (you.battlefield.length > 0 && selected.length > 0 && la.canAddCards) {
+    const n = selected.length;
+    const min = Math.max(0, v.maxBet - you.betTotal);
+    const max = Math.min(you.chips, (you.battlefield.length + n) * mult - you.betTotal);
+    if (max >= min) {
+      const delta = Math.max(min, Math.min(ui.bet ?? min, max));
+      dock.appendChild(mkSlider('delta', `加注（${min}~${max}）`, min, max, delta));
+      dock.appendChild(
+        bigBtn(`🂠 加牌 ${n} 张`, 'primary', () =>
+          commit(() => gameAction({ t: 'add_cards', cardIds: [...selected], betDelta: Number(dock.querySelector('.val')!.textContent!) })),
+        ),
+      );
+    } else {
+      const tip = document.createElement('span');
+      tip.className = 'hint';
+      tip.textContent = `加 ${n} 张也押不满 ${v.maxBet}，多选几张`;
+      dock.appendChild(tip);
+    }
+  } else if (la.canAddChips) {
+    const { min, max } = la.canAddChips;
+    const delta = Math.max(min, Math.min(ui.bet ?? min, max));
+    dock.appendChild(mkSlider('chips', `加注（${min}~${max}）`, min, max, delta));
+    dock.appendChild(
+      bigBtn(`💰 加注 ${delta}`, 'primary', () =>
+        commit(() => gameAction({ t: 'add_chips', betDelta: Number(dock.querySelector('.val')!.textContent!) })),
+      ),
+    );
+  } else if (la.canPlay) {
+    const tip = document.createElement('span');
+    tip.className = 'hint';
+    tip.textContent = '在下方点选手牌（张数 × 筹码倍数 = 押注上限）';
+    dock.appendChild(tip);
+  }
+
+  addPreview();
+
+  if (la.canFold) {
+    const fold = document.createElement('button');
+    fold.className = 'dock-btn danger-btn';
+    fold.textContent = '弃牌';
+    fold.addEventListener('click', () => {
+      if (confirm('确定弃牌？已押筹码将进入奖池且无法收回。')) {
+        sfx.click();
+        void gameAction({ t: 'fold' }).then((ok) => {
+          if (ok) patchUI({ selected: [], bet: null });
+        });
+      }
+    });
+    dock.appendChild(fold);
+  }
+}
+
+// ============ 摊牌准备 / 教官裁定 ============
+
+function prepareShowdown(entries: ShowdownEntry[]): { seat: number; cards: HTMLElement[]; label: HTMLElement }[] {
+  const you = getState().view!.you.seat;
+  const out: { seat: number; cards: HTMLElement[]; label: HTMLElement }[] = [];
+  for (const entry of entries) {
+    const own = entry.seat === you;
+    const container = own ? els!.youPlayed : (document.querySelector(`.opp-card[data-seat="${entry.seat}"] .opp-segs`) as HTMLElement | null);
+    if (!container) continue;
+    container.innerHTML = '';
+    const cluster = document.createElement('div');
+    cluster.className = 'seg';
+    const cards: HTMLElement[] = [];
+    for (const c of entry.cards) {
+      const node = createCard(c, { up: false, mini: !own });
+      cluster.appendChild(node);
+      cards.push(node);
+    }
+    const label = document.createElement('span');
+    label.className = 'seg-count gold-text';
+    cluster.appendChild(label);
+    cluster.dataset.reveal = '1';
+    container.appendChild(cluster);
+    out.push({ seat: entry.seat, cards, label });
+  }
+  return out;
+}
+
+function verdictShow(html: string): Promise<void> {
+  const ov = els!.overlay;
+  ov.innerHTML = html;
+  ov.classList.add('show');
+  return new Promise((resolve) => setTimeout(() => resolve(), matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 2100));
 }
 
 // ============ 倒计时 ============
@@ -675,6 +717,10 @@ function renderCountdown(v: PlayerView) {
     const remain = Math.max(0, Math.ceil((v.deadlineAt - Date.now()) / 1000));
     el.textContent = `⏳ ${remain}s`;
     el.style.color = remain <= 5 ? 'var(--danger)' : 'var(--gold)';
+    if (remain <= 5 && remain !== lastTickSecond) {
+      lastTickSecond = remain;
+      if (remain > 0) sfx.tick();
+    }
     if (remain > 0) countdownRaf = requestAnimationFrame(tickFn);
   };
   tickFn();

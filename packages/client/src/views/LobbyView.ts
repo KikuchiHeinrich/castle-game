@@ -1,11 +1,15 @@
 import type { RoomSettings } from '../../../shared/src/index';
+import { PLAYER_CHARS, avatarSVG } from '../components/pixelAvatar';
 import { createRoom, joinRoom } from '../net/socket';
 import { getState, saveName } from '../store';
 import { renderHandTypes, toggleDrawer } from '../components/drawer';
 import { startTutorial } from '../components/tutorial';
+import { sfx } from '../components/sfx';
 
 export function mountLobby(root: HTMLElement) {
   const ui = getState().ui;
+  const savedAvatar = localStorage.getItem('castle.avatar') ?? PLAYER_CHARS[0].id;
+
   root.innerHTML = `
     <div id="lobby">
       <div class="title">城 堡</div>
@@ -13,6 +17,12 @@ export function mountLobby(root: HTMLElement) {
       <div class="menu pixel-panel">
         <div class="row">
           <input id="name" type="text" maxlength="12" placeholder="你的昵称" value="${ui.name.replace(/"/g, '')}" style="width:180px" />
+        </div>
+        <div class="row" id="avatar-row">
+          ${PLAYER_CHARS.map(
+            (c) =>
+              `<div class="avatar-pick ${c.id === savedAvatar ? 'sel' : ''}" data-id="${c.id}" title="${c.name}">${avatarSVG(c.id, 'happy', 2)}<span>${c.name}</span></div>`,
+          ).join('')}
         </div>
         <div class="row">
           <button id="btn-create" class="primary">创建房间</button>
@@ -48,7 +58,14 @@ export function mountLobby(root: HTMLElement) {
               <option value="5">5</option>
             </select>
           </div>
-          <div class="cfg-note">底注过高会加速淘汰；不限时建议熟悉规则后再用</div>
+          <div class="cfg-row"><span>筹码倍数</span>
+            <select id="cfg-mult">
+              <option value="1" selected>×1（牌数=上限）</option>
+              <option value="2">×2（大注快攻）</option>
+              <option value="3">×3（疯狂模式）</option>
+            </select>
+          </div>
+          <div class="cfg-note">筹码倍数：押注上限 = 出战区牌数 × 倍数，越高越刺激；不限时建议熟悉规则后再用</div>
         </details>
       </div>
       <div class="row">
@@ -60,6 +77,16 @@ export function mountLobby(root: HTMLElement) {
   `;
 
   renderHandTypes(root.querySelector('#drawer')!);
+
+  let avatar = savedAvatar;
+  root.querySelectorAll('.avatar-pick').forEach((el) => {
+    el.addEventListener('click', () => {
+      sfx.click();
+      avatar = (el as HTMLElement).dataset.id!;
+      root.querySelectorAll('.avatar-pick').forEach((x) => x.classList.remove('sel'));
+      el.classList.add('sel');
+    });
+  });
 
   const nameEl = root.querySelector<HTMLInputElement>('#name')!;
   nameEl.addEventListener('input', () => saveName(nameEl.value.trim()));
@@ -89,20 +116,22 @@ export function mountLobby(root: HTMLElement) {
       idleMs: turnMs === 0 ? 0 : Math.max(60_000, turnMs * 6),
       startChips: Number(root.querySelector<HTMLSelectElement>('#cfg-chips')!.value),
       ante: Number(root.querySelector<HTMLSelectElement>('#cfg-ante')!.value),
+      chipMultiplier: Number(root.querySelector<HTMLSelectElement>('#cfg-mult')!.value),
     };
   };
 
   root.querySelector('#btn-create')!.addEventListener('click', () => {
     const name = ensureName();
-    if (name) void createRoom(name, collectSettings());
+    if (name) void createRoom(name, collectSettings(), avatar);
   });
 
   root.querySelector('#btn-tutorial')!.addEventListener('click', () => {
     const name = ensureName();
     if (!name) return;
+    sfx.click();
     startTutorial();
     // 教学局：宽限时长 + 1 名教官机器人
-    void createRoom(name, { turnMs: 120_000, defenseMs: 30_000, idleMs: 600_000, startChips: 100, ante: 1 });
+    void createRoom(name, { turnMs: 120_000, defenseMs: 30_000, idleMs: 600_000, startChips: 100, ante: 1 }, avatar);
   });
 
   root.querySelector('#btn-join')!.addEventListener('click', () => {
@@ -115,7 +144,7 @@ export function mountLobby(root: HTMLElement) {
       return;
     }
     sessionStorage.removeItem('castle.tutorial');
-    void joinRoom(code, name);
+    void joinRoom(code, name, avatar);
   });
 
   root.querySelector('#btn-types')!.addEventListener('click', () => toggleDrawer());

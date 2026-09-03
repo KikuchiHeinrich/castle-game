@@ -329,3 +329,79 @@
   #tutorial-card .tut-portrait-svg .pixel-avatar { width: 48px; height: 66px; }
   #tutorial-card .tut-portrait { padding: 4px 6px; }
 }
+
+/* ---- 押注坞（手牌上方：滑块 + 大按钮） ---- */
+#bet-dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 4px 8px;
+  min-height: 46px;
+  width: 100%;
+}
+
+.dock-btn {
+  font-size: 17px;
+  padding: 12px 26px;
+}
+.dock-btn.primary { background: var(--gold); color: var(--card-edge); }
+.dock-btn.danger-btn { background: var(--danger); margin-left: 10px; }
+
+.avatar-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--dim);
+}
+.avatar-pick.sel { border-color: var(--gold); color: var(--card-face); background: #00000055; }
+
+.own-av { display: inline-flex; align-items: center; gap: 4px; }
+.own-av .pixel-avatar { border: 1px solid var(--card-edge); background: #ffffff10; }
+
+/* ---- 教官裁定演出 ---- */
+.verdict-box {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: var(--night-2);
+  border: 3px solid var(--gold);
+  box-shadow: 6px 6px 0 #000000aa;
+  padding: 18px 30px;
+}
+.verdict-avatar { border: 2px solid var(--card-edge); background: #ffffff10; }
+.verdict-title { font-size: 14px; color: var(--dim); letter-spacing: 4px; }
+.verdict-main { font-size: 34px; color: var(--gold); text-shadow: 3px 3px 0 #00000088; }
+.verdict-sub { font-size: 15px; color: var(--card-face); margin-top: 4px; }
+
+/* ---- 教学对话框气泡 ---- */
+#tutorial-card .tut-dialog {
+  position: relative;
+  background: #00000066;
+  border: 1px solid #ffffff22;
+  padding: 10px 14px;
+}
+#tutorial-card .tut-dialog::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 24px;
+  border: 8px solid transparent;
+  border-right-color: var(--gold);
+}
+#tutorial-card .tut-next {
+  color: var(--gold);
+  font-size: 12px;
+  text-align: right;
+  animation: tutNext 0.9s steps(2) infinite;
+  margin-top: 4px;
+}
+@keyframes tutNext {
+  50% { opacity: 0.25; }
+}

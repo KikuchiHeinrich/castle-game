@@ -9,6 +9,7 @@ import { LegalActions, emptyLegal, legalActions } from './legal';
 export interface PublicPlayer {
   seat: number;
   name: string;
+  avatar: string;
   chips: number;
   isHost: boolean;
   isBot: boolean;
@@ -28,6 +29,7 @@ export interface PublicPlayer {
 export interface YouView {
   seat: number;
   name: string;
+  avatar: string;
   chips: number;
   isHost: boolean;
   status: PlayerStatus;
@@ -76,6 +78,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
   const pub = (p: Player): PublicPlayer => ({
     seat: p.seat,
     name: p.name,
+    avatar: p.avatar,
     chips: p.chips,
     isHost: p.isHost,
     isBot: p.isBot,
@@ -113,6 +116,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
     you: {
       seat: me.seat,
       name: me.name,
+      avatar: me.avatar,
       chips: me.chips,
       isHost: me.isHost,
       status: me.status,

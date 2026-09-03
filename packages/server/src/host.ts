@@ -158,9 +158,9 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
 
     const err = (ack: Ack | undefined, error: string) => ack?.({ ok: false, error });
 
-    socket.on('room:create', ({ name, settings }: { name: string; settings?: Partial<RoomSettings> }, ack: Ack) => {
+    socket.on('room:create', ({ name, settings, avatar }: { name: string; settings?: Partial<RoomSettings>; avatar?: string }, ack: Ack) => {
       const room = rooms.create(settings);
-      const r = addPlayer(room.state, String(name ?? ''));
+      const r = addPlayer(room.state, String(name ?? ''), false, String(avatar ?? 'shirley'));
       if (!r.ok) {
         rooms.destroy(room.code);
         return err(ack, r.error);
@@ -169,11 +169,11 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
       bindSocket(room, socket, r.seat, ack);
     });
 
-    socket.on('room:join', ({ roomCode, name }: { roomCode: string; name: string }, ack: Ack) => {
+    socket.on('room:join', ({ roomCode, name, avatar }: { roomCode: string; name: string; avatar?: string }, ack: Ack) => {
       const room = rooms.get(String(roomCode ?? ''));
       if (!room) return err(ack, '房间不存在，检查一下房间码');
       if (room.state.phase !== 'lobby') return err(ack, '对局已开始，无法加入');
-      const r = addPlayer(room.state, String(name ?? ''));
+      const r = addPlayer(room.state, String(name ?? ''), false, String(avatar ?? 'shirley'));
       if (!r.ok) return err(ack, r.error);
       joinedRoom = room;
       bindSocket(room, socket, r.seat, ack);

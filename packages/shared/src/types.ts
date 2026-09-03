@@ -45,12 +45,6 @@ export function compareHandValue(a: HandValue, b: HandValue): number {
 
 // ============ 玩家 / 回合 ============
 
-/** 一段出牌：本次打出几张 + 亮出的最大牌（仅 1 张的段不亮牌，top 为 null） */
-export interface PlaySegment {
-  count: number;
-  top: Card | null;
-}
-
 export type PlayerStatus = 'idle' | 'active' | 'folded' | 'defended' | 'out';
 export type RoundPhase = 'defense_window' | 'opening' | 'rotation' | 'settlement';
 
@@ -61,6 +55,7 @@ export interface RoomSettings {
   defenseMs: number; // 防守窗口时长
   turnMs: number; // 宣战/轮转单人时长
   idleMs: number; // 全桌无动作兜底
+  chipMultiplier: number; // 筹码倍数：押注上限 = 出战区牌数 × 倍数
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -69,11 +64,19 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   defenseMs: 20_000,
   turnMs: 60_000,
   idleMs: 180_000,
+  chipMultiplier: 1,
 };
+
+/** 出牌段：本次打出几张 + 亮出的最大牌（仅 1 张的段不亮牌，top 为 null） */
+export interface PlaySegment {
+  count: number;
+  top: Card | null;
+}
 
 export interface Player {
   seat: number;
   name: string;
+  avatar: string; // 形象 id（pixelAvatar 角色表）
   chips: number;
   isHost: boolean;
   isBot: boolean;

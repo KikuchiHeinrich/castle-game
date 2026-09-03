@@ -45,6 +45,7 @@ export function normalizeSettings(p: Partial<RoomSettings> = {}): RoomSettings {
     defenseMs: clampMs(p.defenseMs, DEFAULT_SETTINGS.defenseMs, 5, 600),
     turnMs: clampMs(p.turnMs, DEFAULT_SETTINGS.turnMs, 10, 1200),
     idleMs: clampMs(p.idleMs, DEFAULT_SETTINGS.idleMs, 30, 3600),
+    chipMultiplier: clampNum(p.chipMultiplier, DEFAULT_SETTINGS.chipMultiplier, 1, 5),
   };
 }
 
@@ -66,7 +67,7 @@ export function createGameState(code: string, settings?: Partial<RoomSettings>):
   };
 }
 
-export function addPlayer(s: GameState, name: string, isBot = false): { ok: true; seat: number } | { ok: false; error: string } {
+export function addPlayer(s: GameState, name: string, isBot = false, avatar = 'shirley'): { ok: true; seat: number } | { ok: false; error: string } {
   if (s.phase !== 'lobby') return { ok: false, error: '对局已开始，无法加入' };
   const clean = name.trim().slice(0, 12);
   if (!clean) return { ok: false, error: '昵称不能为空' };
@@ -78,6 +79,7 @@ export function addPlayer(s: GameState, name: string, isBot = false): { ok: true
   const player: Player = {
     seat,
     name: isBot ? `电脑${clean}` : clean,
+    avatar: isBot ? 'shirley' : avatar,
     chips: s.settings.startChips,
     isHost: seat === 0,
     isBot,
@@ -624,7 +626,7 @@ export function applyAction(s0: GameState, seat: number, action: GameAction, now
       const bet = Math.floor(action.bet);
       if (!Number.isFinite(bet) || bet < 0) return err('押注不合法');
       if (bet < r.maxBet) return err(`押注须 ≥ 场上最大押注 ${r.maxBet}`);
-      if (bet > cards.length) return err('押注不能超过出牌数');
+      if (bet > cards.length * s.settings.chipMultiplier) return err(`押注不能超过出牌数 × 筹码倍数（${cards.length}×${s.settings.chipMultiplier}）`);
       if (bet > p.chips) return err('筹码不足');
       applyPlay(s, seat, cards, bet, now, events);
       break;
@@ -639,7 +641,7 @@ export function applyAction(s0: GameState, seat: number, action: GameAction, now
       const delta = Math.floor(action.betDelta);
       if (!Number.isFinite(delta) || delta < 0) return err('加注不合法');
       const newBet = p.betTotal + delta;
-      if (newBet > p.battlefield.length + cards.length) return err('押注超过出战区牌数上限');
+      if (newBet > (p.battlefield.length + cards.length) * s.settings.chipMultiplier) return err('押注超过出战区牌数上限');
       if (newBet < r.maxBet) return err(`押注须 ≥ 场上最大押注 ${r.maxBet}`);
       if (delta > p.chips) return err('筹码不足');
       applyAddCards(s, seat, cards, delta, now, events);
@@ -653,7 +655,7 @@ export function applyAction(s0: GameState, seat: number, action: GameAction, now
       const delta = Math.floor(action.betDelta);
       if (!Number.isFinite(delta) || delta < 0) return err('加注不合法');
       const newBet = p.betTotal + delta;
-      if (newBet > p.battlefield.length) return err('押注不能超过出战区牌数');
+      if (newBet > p.battlefield.length * s.settings.chipMultiplier) return err('押注不能超过出战区牌数上限');
       if (newBet < r.maxBet) return err(`押注须 ≥ 场上最大押注 ${r.maxBet}，不能免费过牌`);
       if (delta > p.chips) return err('筹码不足');
       applyAddChips(s, seat, delta, now, events);
@@ -730,7 +732,7 @@ function autoMinimalPlay(s: GameState, now: number, events: GameEvent[]) {
   const hand = s.secret!.hands[seat];
   const sorted = lowestFirst(hand);
   for (let n = 1; n <= sorted.length; n++) {
-    if (Math.min(n, getPlayer(s, seat)!.chips) >= r.maxBet) {
+    if (Math.min(n * s.settings.chipMultiplier, getPlayer(s, seat)!.chips) >= r.maxBet) {
       applyPlay(s, seat, sorted.slice(0, n), r.maxBet, now, events);
       return;
     }
@@ -753,7 +755,7 @@ function autoAct(s: GameState, now: number, events: GameEvent[]) {
   if (p.battlefield.length === 0) {
     const sorted = lowestFirst(hand);
     for (let n = 1; n <= sorted.length; n++) {
-      if (Math.min(n, p.chips) >= r.maxBet) {
+      if (Math.min(n * s.settings.chipMultiplier, p.chips) >= r.maxBet) {
         applyPlay(s, seat, sorted.slice(0, n), r.maxBet, now, events);
         return;
       }
@@ -763,13 +765,13 @@ function autoAct(s: GameState, now: number, events: GameEvent[]) {
   }
   // 已有出战区但押注不足
   const need = r.maxBet - p.betTotal;
-  if (p.chips >= need && p.betTotal + need <= p.battlefield.length) {
+  if (p.chips >= need && p.betTotal + need <= p.battlefield.length * s.settings.chipMultiplier) {
     applyAddChips(s, seat, need, now, events);
     return;
   }
   const sorted = lowestFirst(hand);
   for (let n = 1; n <= sorted.length; n++) {
-    const newBet = p.betTotal + Math.min(p.chips, p.battlefield.length + n - p.betTotal);
+    const newBet = p.betTotal + Math.min(p.chips, (p.battlefield.length + n) * s.settings.chipMultiplier - p.betTotal);
     if (newBet >= r.maxBet && p.chips >= need) {
       applyAddCards(s, seat, sorted.slice(0, n), need, now, events);
       return;

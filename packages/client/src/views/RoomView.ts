@@ -30,7 +30,7 @@ export function mountRoom(root: HTMLElement, view: PlayerView) {
             p.seat === view.you.seat ? '（你）' : '',
           ].join(' ');
           return `<div class="cell">
-            <div class="name">${p.isBot ? avatarSVG('happy', 1.5) : ''}${p.name}</div>
+            <div class="name">${p.isBot ? avatarSVG(p.avatar, 'happy', 1.5) : ''}${p.name}</div>
             <div class="meta">${marks || '&nbsp;'}</div>
           </div>`;
         }).join('')}
