@@ -6,6 +6,7 @@ import { Server as IOServer, Socket } from 'socket.io';
 import {
   GameAction,
   GameEvent,
+  RoomSettings,
   addPlayer,
   buildPlayerView,
   startGame,
@@ -94,7 +95,7 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
     }
     const s = room.state;
     if (s.phase !== 'playing' || !s.round) return;
-    const delay = Math.max(300, s.round.deadlineAt - Date.now());
+    const delay = Math.min(2 ** 31 - 5, Math.max(300, s.round.deadlineAt - Date.now())); // 不限时(~Infinity)时挂起到上限
     room.timer = setTimeout(() => {
       room.timer = null;
       if (rooms.get(room.code) !== room) return;
@@ -157,8 +158,8 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
 
     const err = (ack: Ack | undefined, error: string) => ack?.({ ok: false, error });
 
-    socket.on('room:create', ({ name }: { name: string }, ack: Ack) => {
-      const room = rooms.create();
+    socket.on('room:create', ({ name, settings }: { name: string; settings?: Partial<RoomSettings> }, ack: Ack) => {
+      const room = rooms.create(settings);
       const r = addPlayer(room.state, String(name ?? ''));
       if (!r.ok) {
         rooms.destroy(room.code);

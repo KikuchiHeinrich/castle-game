@@ -1,9 +1,11 @@
 import {
   Card,
+  DEFAULT_SETTINGS,
   GameAction,
   GameEvent,
   GameState,
   Player,
+  RoomSettings,
   RoundState,
   ShowdownEntry,
   ShowdownResult,
@@ -16,11 +18,7 @@ import { allPlayers, getPlayer, nextVoter, survivors, voters } from './seating';
 // ============ 常量 ============
 
 export const TIMING = {
-  defenseWindowMs: 12_000, // 防守窗口
-  openingMs: 30_000, // 宣战
-  turnMs: 30_000, // 轮转单人回合
-  idleMs: 90_000, // 全桌无动作兜底
-  settlementMs: 5_000, // 摊牌展示
+  settlementMs: 5_000, // 摊牌展示（固定）
 };
 export const START_CHIPS = 100;
 export const ANTE = 1;
@@ -28,12 +26,35 @@ export const HAND_SIZE = 6;
 export const MAX_PLAYERS = 6;
 export const MIN_PLAYERS = 2;
 
+/** 建房参数规范化（服务端与客户端共用）：越界/非法值落回默认 */
+export function normalizeSettings(p: Partial<RoomSettings> = {}): RoomSettings {
+  const clampMs = (v: unknown, def: number, loSec: number, hiSec: number) => {
+    const n = Math.floor(Number(v));
+    if (!Number.isFinite(n)) return def;
+    if (n === 0) return 0; // 不限时
+    return Math.min(hiSec * 1000, Math.max(loSec * 1000, n * 1000));
+  };
+  const clampNum = (v: unknown, def: number, lo: number, hi: number) => {
+    const n = Math.floor(Number(v));
+    if (!Number.isFinite(n)) return def;
+    return Math.min(hi, Math.max(lo, n));
+  };
+  return {
+    startChips: clampNum(p.startChips, DEFAULT_SETTINGS.startChips, 10, 100_000),
+    ante: clampNum(p.ante, DEFAULT_SETTINGS.ante, 1, 1000),
+    defenseMs: clampMs(p.defenseMs, DEFAULT_SETTINGS.defenseMs, 5, 600),
+    turnMs: clampMs(p.turnMs, DEFAULT_SETTINGS.turnMs, 10, 1200),
+    idleMs: clampMs(p.idleMs, DEFAULT_SETTINGS.idleMs, 30, 3600),
+  };
+}
+
 // ============ 基础操作 ============
 
-export function createGameState(code: string): GameState {
+export function createGameState(code: string, settings?: Partial<RoomSettings>): GameState {
   return {
     code,
     phase: 'lobby',
+    settings: normalizeSettings(settings),
     players: [],
     hostSeat: 0,
     round: null,
@@ -57,7 +78,7 @@ export function addPlayer(s: GameState, name: string, isBot = false): { ok: true
   const player: Player = {
     seat,
     name: isBot ? `电脑${clean}` : clean,
-    chips: START_CHIPS,
+    chips: s.settings.startChips,
     isHost: seat === 0,
     isBot,
     connected: !isBot,
@@ -66,7 +87,7 @@ export function addPlayer(s: GameState, name: string, isBot = false): { ok: true
     betTotal: 0,
     invested: 0,
     battlefield: [],
-    revealedTops: [],
+    playSegments: [],
     escrow: 0,
     defensePassed: false,
     agreeEnd: false,
@@ -97,12 +118,12 @@ export function startGame(s: GameState, seat: number, seed: number, now: number)
   if (s.players.length < MIN_PLAYERS) return { ok: false, error: `至少需要 ${MIN_PLAYERS} 名玩家` };
   s.phase = 'playing';
   for (const pl of allPlayers(s)) {
-    pl.chips = START_CHIPS;
+    pl.chips = s.settings.startChips;
     pl.status = 'active';
     pl.betTotal = 0;
     pl.invested = 0;
     pl.battlefield = [];
-    pl.revealedTops = [];
+    pl.playSegments = [];
     pl.escrow = 0;
     pl.defensePassed = false;
     pl.agreeEnd = false;
@@ -127,12 +148,12 @@ export function rematch(s: GameState, seat: number): { ok: boolean; error?: stri
   s.winnerSeat = null;
   s.lastWinnerSeat = null;
   for (const pl of allPlayers(s)) {
-    pl.chips = START_CHIPS;
+    pl.chips = s.settings.startChips;
     pl.status = 'idle';
     pl.betTotal = 0;
     pl.invested = 0;
     pl.battlefield = [];
-    pl.revealedTops = [];
+    pl.playSegments = [];
     pl.escrow = 0;
     pl.defensePassed = false;
     pl.agreeEnd = false;
@@ -146,6 +167,16 @@ export function rematch(s: GameState, seat: number): { ok: boolean; error?: stri
 function push(s: GameState, events: GameEvent[], ev: GameEvent) {
   s.eventSeq++;
   events.push(ev);
+}
+
+/** 阶段截止时刻；ms=0 表示不限时 */
+function deadline(now: number, ms: number): number {
+  return ms > 0 ? now + ms : Number.MAX_SAFE_INTEGER;
+}
+
+/** 出牌段只有 1 张时不亮牌——单张出牌等于摊牌，没有隐藏信息 */
+function segmentTop(cards: Card[]): Card | null {
+  return cards.length >= 2 ? topCard(cards) : null;
 }
 
 function topCard(cards: Card[]): Card {
@@ -197,7 +228,7 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
   for (const p of allPlayers(s)) {
     deck.push(...p.battlefield);
     p.battlefield = [];
-    p.revealedTops = [];
+    p.playSegments = [];
     deck.push(...s.secret!.hands[p.seat]);
     s.secret!.hands[p.seat] = [];
     p.betTotal = 0;
@@ -216,11 +247,12 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
   s.secret!.deck = shuffled.arr;
 
   // ---- 底注 ----
+  const ante = s.settings.ante;
   let pot = 0;
   for (const p of alive) {
-    p.chips -= ANTE;
-    p.invested = ANTE;
-    pot += ANTE;
+    p.chips -= ante;
+    p.invested = ante;
+    pot += ante;
   }
 
   // ---- 宣战者 ----
@@ -241,7 +273,7 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
     turnSeat: declarer,
     pot,
     maxBet: 0,
-    deadlineAt: now + TIMING.defenseWindowMs,
+    deadlineAt: deadline(now, s.settings.defenseMs),
     lastActionAt: now,
     result: null,
   };
@@ -269,7 +301,7 @@ function closeDefenseWindow(s: GameState, now: number, events: GameEvent[]) {
   r.openerSeat = declarer.status === 'active' ? r.declarerSeat : nextVoter(s, r.declarerSeat)!;
   r.turnSeat = r.openerSeat;
   r.phase = 'opening';
-  r.deadlineAt = now + TIMING.openingMs;
+  r.deadlineAt = deadline(now, s.settings.turnMs);
   r.lastActionAt = now;
 }
 
@@ -436,13 +468,14 @@ function applyPlay(s: GameState, seat: number, cards: Card[], bet: number, now: 
   const p = getPlayer(s, seat)!;
   removeFromHand(s, seat, cards);
   p.battlefield = cards;
-  p.revealedTops = [topCard(cards)];
+  const top = segmentTop(cards);
+  p.playSegments = [{ count: cards.length, top }];
   p.betTotal = bet;
   p.chips -= bet;
   p.invested += bet;
   r.pot += bet; // 押注即入池
   p.lastAction = `出战 ${cards.length} 张 · 押 ${bet}`;
-  push(s, events, { t: 'play', seat, cardCount: cards.length, bet, revealedTop: p.revealedTops[0] });
+  push(s, events, { t: 'play', seat, cardCount: cards.length, bet, revealedTop: top });
   resetAgrees(s, events);
   updateMaxBet(s);
   if (r.phase === 'opening') {
@@ -456,13 +489,14 @@ function applyAddCards(s: GameState, seat: number, cards: Card[], betDelta: numb
   const p = getPlayer(s, seat)!;
   removeFromHand(s, seat, cards);
   p.battlefield.push(...cards);
-  p.revealedTops.push(topCard(cards));
+  const segTop = segmentTop(cards);
+  p.playSegments.push({ count: cards.length, top: segTop });
   p.betTotal += betDelta;
   p.chips -= betDelta;
   p.invested += betDelta;
   r.pot += betDelta;
   p.lastAction = `加牌 ${cards.length} 张${betDelta > 0 ? ` · 加注 ${betDelta}` : ''}`;
-  push(s, events, { t: 'add_cards', seat, cardCount: cards.length, betDelta, revealedTop: topCard(cards) });
+  push(s, events, { t: 'add_cards', seat, cardCount: cards.length, betDelta, revealedTop: segTop });
   resetAgrees(s, events);
   updateMaxBet(s);
   afterBettingAction(s, now, events);
@@ -487,7 +521,7 @@ function afterBettingAction(s: GameState, now: number, events: GameEvent[]) {
   r.lastActionAt = now;
   if (checkRoundEnd(s, now, events)) return;
   r.turnSeat = nextVoter(s, r.turnSeat)!;
-  r.deadlineAt = now + TIMING.turnMs;
+  r.deadlineAt = deadline(now, s.settings.turnMs);
 }
 
 function resetAgrees(s: GameState, events: GameEvent[]) {
@@ -512,7 +546,7 @@ function applyFold(s: GameState, seat: number, now: number, events: GameEvent[])
   updateMaxBet(s);
   if (checkRoundEnd(s, now, events)) return;
   r.turnSeat = nextVoter(s, r.turnSeat)!;
-  r.deadlineAt = now + TIMING.turnMs;
+  r.deadlineAt = deadline(now, s.settings.turnMs);
 }
 
 function applyAgree(s: GameState, seat: number, agree: boolean, now: number, events: GameEvent[]) {
@@ -528,7 +562,7 @@ function applyAgree(s: GameState, seat: number, agree: boolean, now: number, eve
     return;
   }
   r.turnSeat = nextVoter(s, r.turnSeat)!;
-  r.deadlineAt = now + TIMING.turnMs;
+  r.deadlineAt = deadline(now, s.settings.turnMs);
 }
 
 // ============ 对外动作入口 ============
@@ -558,9 +592,10 @@ export function applyAction(s0: GameState, seat: number, action: GameAction, now
       p.escrow = escrow;
       p.chips -= escrow;
       p.battlefield = cards;
-      p.revealedTops = [topCard(cards)];
+      const defTop = segmentTop(cards);
+      p.playSegments = [{ count: cards.length, top: defTop }];
       p.lastAction = `防守 ${cards.length} 张 · 托管 ${escrow}`;
-      push(s, events, { t: 'defense_declared', seat, cardCount: cards.length, escrow, revealedTop: p.revealedTops[0] });
+      push(s, events, { t: 'defense_declared', seat, cardCount: cards.length, escrow, revealedTop: defTop });
       if (voters(s).every((v) => v.defensePassed)) closeDefenseWindow(s, now, events);
       break;
     }
@@ -663,7 +698,7 @@ export function tick(s0: GameState, now: number): { state: GameState; events: Ga
       continue;
     }
     if (now < r.deadlineAt) {
-      if (r.phase === 'rotation' && now - r.lastActionAt >= TIMING.idleMs) {
+      if (r.phase === 'rotation' && s.settings.idleMs > 0 && now - r.lastActionAt >= s.settings.idleMs) {
         // 全桌无动作兜底：全体视为同意，进入摊牌
         for (const v of voters(s)) v.agreeEnd = true;
         doShowdown(s, now, events);

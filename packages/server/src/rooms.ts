@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { GameEvent, GameState, createGameState } from '../../shared/src/index';
+import { GameEvent, GameState, RoomSettings, createGameState } from '../../shared/src/index';
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; // 无易混淆字符
 
@@ -30,10 +30,10 @@ function makeCode(existing: Set<string>): string {
 export class RoomManager {
   private map = new Map<string, Room>();
 
-  create(now = Date.now()): Room {
+  create(settings?: Partial<RoomSettings>, now = Date.now()): Room {
     const room: Room = {
       code: makeCode(new Set(this.map.keys())),
-      state: createGameState(''),
+      state: createGameState('', settings),
       socketSeats: new Map(),
       seatSockets: new Map(),
       eventLog: [],

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Card, GameAction, GameState, ANTE, HAND_SIZE, START_CHIPS, TIMING, addPlayer, applyAction, createGameState, rematch, startGame, tick } from '../index';
+import { Card, GameAction, GameState, ANTE, HAND_SIZE, START_CHIPS, TIMING, addPlayer, applyAction, createGameState, normalizeSettings, rematch, startGame, tick } from '../index';
 
 const T0 = 1_000_000;
+const TURN_MS = 60_000; // 与 DEFAULT_SETTINGS.turnMs 一致
 
 function newGame(n = 3, seed = 7): { s: GameState; declarerSeat: number } {
   let s = createGameState('TST1');
@@ -171,7 +172,7 @@ describe('防守', () => {
     s = act(s, d, { t: 'declare_defense', cardIds: ['♠A', '♠K', '♠Q', '♠J', '♠10'], escrow: 5 });
     expect(seatOf(s, d).status).toBe('defended');
     expect(seatOf(s, d).chips).toBe(START_CHIPS - ANTE - 5);
-    expect(seatOf(s, d).revealedTops[0].id).toBe('♠A'); // 亮最大牌
+    expect(seatOf(s, d).playSegments[0].top!.id).toBe("♠A"); // 亮最大牌
 
     s = act(s, a, { t: 'pass_defense' });
     s = act(s, b, { t: 'pass_defense' });
@@ -305,7 +306,7 @@ describe('超时自动动作（虚拟时钟）', () => {
     for (let i = 0; i < 3; i++) s = act(s, i, { t: 'pass_defense' }, T0 + 1000);
 
     // 宣战者超时 → 自动出 1 张最小牌（♥3）押 0
-    const t1 = tick(s, T0 + 1000 + TIMING.openingMs + 1);
+    const t1 = tick(s, T0 + 1000 + TURN_MS + 1);
     s = t1.state;
     expect(s.round!.phase).toBe('rotation');
     expect(s.players[declarerSeat]!.battlefield).toHaveLength(1);
@@ -313,7 +314,7 @@ describe('超时自动动作（虚拟时钟）', () => {
 
     // 每个 tick 只推进一个超时自动动作；连续 tick 直至全员同意摊牌
     for (let i = 2; i <= 10; i++) {
-      s = tick(s, T0 + 1000 + TIMING.openingMs + TIMING.turnMs * i + 1).state;
+      s = tick(s, T0 + 1000 + TURN_MS + TURN_MS * i + 1).state;
       if (s.round!.phase === 'settlement') break;
     }
     expect(s.round!.phase).toBe('settlement');
@@ -332,7 +333,7 @@ describe('超时自动动作（虚拟时钟）', () => {
     s = act(s, declarerSeat, { t: 'play', cardIds: ['♠A', '♥A', '♦K'], bet: 3 }, T0 + 2000);
 
     // a 超时：出战区为空，自动出最小的 3 张押 3
-    const t = tick(s, T0 + 2000 + TIMING.turnMs + 1);
+    const t = tick(s, T0 + 2000 + TURN_MS + 1);
     s = t.state;
     const pa = seatOf(s, a);
     expect(pa.battlefield).toHaveLength(3);
@@ -340,7 +341,7 @@ describe('超时自动动作（虚拟时钟）', () => {
     // 双方已押满 → 后续超时自动同意 → 摊牌
     let phase = s.round!.phase;
     for (let i = 2; i <= 10 && phase !== 'settlement'; i++) {
-      s = tick(s, T0 + 2000 + TIMING.turnMs * i + 1).state;
+      s = tick(s, T0 + 2000 + TURN_MS * i + 1).state;
       phase = s.round!.phase;
     }
     expect(phase).toBe('settlement');
@@ -359,7 +360,7 @@ describe('超时自动动作（虚拟时钟）', () => {
     // 后续超时自动同意，逐 tick 推进到摊牌
     let phase = s.round!.phase;
     for (let i = 1; i <= 10 && phase !== 'settlement'; i++) {
-      s = tick(s, T0 + 3000 + TIMING.turnMs * i + 1).state;
+      s = tick(s, T0 + 3000 + TURN_MS * i + 1).state;
       phase = s.round!.phase;
     }
     expect(phase).toBe('settlement');
@@ -401,14 +402,14 @@ describe('淘汰与终局', () => {
     s = act(s, opener, { t: 'play', cardIds: ['♠A', '♥A'], bet: 2 }, T0 + 6000);
     const err = tryAct(s, a, { t: 'play', cardIds: ['♠5'], bet: 0 });
     expect(err).toContain('押注须 ≥');
-    const t2 = tick(s, T0 + 6000 + TIMING.turnMs + 1);
+    const t2 = tick(s, T0 + 6000 + TURN_MS + 1);
     s = t2.state;
     // 自动弃牌 → 只剩一人 → 立即摊牌结算 → 0 筹码淘汰
     expect(['folded', 'out']).toContain(seatOf(s, a).status);
     expect(s.round!.phase).toBe('settlement');
     expect(seatOf(s, a).chips).toBe(0);
 
-    const t3 = tick(s, T0 + 6000 + TIMING.turnMs + TIMING.settlementMs + 1);
+    const t3 = tick(s, T0 + 6000 + TURN_MS + TIMING.settlementMs + 1);
     s = t3.state;
     expect(s.phase).toBe('gameover');
     expect(s.winnerSeat).toBe(opener);
@@ -417,6 +418,63 @@ describe('淘汰与终局', () => {
     expect(r.ok).toBe(true);
     expect(s.phase).toBe('lobby');
     expect(seatOf(s, opener).chips).toBe(START_CHIPS);
+  });
+});
+
+describe('房间自定义参数', () => {
+  it('初始筹码与底注生效', () => {
+    let s = createGameState('CFG1', { startChips: 50, ante: 2 });
+    for (let i = 0; i < 3; i++) addPlayer(s, `P${i}`);
+    const g = startGame(s, 0, 7, T0);
+    if (!g.ok) throw new Error(g.error);
+    s = g.state;
+    for (const p of s.players) expect(p!.chips).toBe(48); // 50 - 底注 2
+    expect(s.round!.pot).toBe(6);
+  });
+
+  it('不限时（turnMs=0）不会触发超时自动动作', () => {
+    const { s: s0 } = newGame(2);
+    let s = { ...s0, settings: { ...s0.settings, defenseMs: 0, turnMs: 0 } };
+    s = act(s, 0, { t: 'pass_defense' }, T0 + 1000);
+    s = act(s, 1, { t: 'pass_defense' }, T0 + 1000);
+    expect(s.round!.phase).toBe('opening');
+    // 十分钟后依旧不超时
+    const t = tick(s, T0 + 600_000);
+    expect(t.state.round!.phase).toBe('opening');
+    expect(t.events).toHaveLength(0);
+  });
+
+  it('normalizeSettings 兜底非法值', () => {
+    const st = normalizeSettings({ startChips: -5, ante: 99999, turnMs: 1 } as never);
+    expect(st.startChips).toBe(10);
+    expect(st.ante).toBe(1000);
+    expect(st.turnMs).toBe(10_000);
+  });
+});
+
+describe('单张出牌不明牌', () => {
+  it('首段单张出战不亮牌；加多张牌恢复亮牌', () => {
+    const { s: s0, declarerSeat } = newGame(2);
+    const a = nextVoterOf(s0, declarerSeat);
+    replaceHands(s0, {
+      [declarerSeat]: ['♠A', '♥A', '♦K', '♣Q', '♦9', '♥3'],
+      [a]: ['♥K', '♣K', '♠5', '♣4', '♦3', '♥2'],
+    });
+    let s = s0;
+    for (let i = 0; i < 2; i++) s = act(s, i, { t: 'pass_defense' }, T0 + 1000);
+    s = act(s, declarerSeat, { t: 'play', cardIds: ['♦K'], bet: 1 }, T0 + 2000);
+    expect(seatOf(s, declarerSeat).playSegments).toHaveLength(1);
+    expect(seatOf(s, declarerSeat).playSegments[0].top).toBeNull(); // 单张不明牌
+    expect(seatOf(s, declarerSeat).battlefield).toHaveLength(1);
+
+    s = act(s, a, { t: 'play', cardIds: ['♥K', '♣K'], bet: 1 }, T0 + 3000);
+    expect(seatOf(s, a).playSegments[0].top!.id).toBe('♣K'); // 两张起亮最大牌（♣ > ♥）
+
+    s = act(s, declarerSeat, { t: 'add_cards', cardIds: ['♠A', '♥A'], betDelta: 0 }, T0 + 4000);
+    const tops = seatOf(s, declarerSeat).playSegments;
+    expect(tops).toHaveLength(2); // 两个出牌段
+    expect(tops[0].top).toBeNull(); // 首段单张保持隐藏
+    expect(tops[1].top!.id).toBe('♠A'); // 本段 2 张 → 亮最大 ♠A
   });
 });
 

@@ -45,8 +45,31 @@ export function compareHandValue(a: HandValue, b: HandValue): number {
 
 // ============ 玩家 / 回合 ============
 
+/** 一段出牌：本次打出几张 + 亮出的最大牌（仅 1 张的段不亮牌，top 为 null） */
+export interface PlaySegment {
+  count: number;
+  top: Card | null;
+}
+
 export type PlayerStatus = 'idle' | 'active' | 'folded' | 'defended' | 'out';
 export type RoundPhase = 'defense_window' | 'opening' | 'rotation' | 'settlement';
+
+/** 房间自定义参数（建房时定，整局固定；时长 0 = 不限时） */
+export interface RoomSettings {
+  startChips: number; // 初始筹码
+  ante: number; // 每回合底注
+  defenseMs: number; // 防守窗口时长
+  turnMs: number; // 宣战/轮转单人时长
+  idleMs: number; // 全桌无动作兜底
+}
+
+export const DEFAULT_SETTINGS: RoomSettings = {
+  startChips: 100,
+  ante: 1,
+  defenseMs: 20_000,
+  turnMs: 60_000,
+  idleMs: 180_000,
+};
 
 export interface Player {
   seat: number;
@@ -61,7 +84,7 @@ export interface Player {
   betTotal: number; // 累计押注（已从筹码扣除、已入奖池）
   invested: number; // 本回合已投入奖池总额（底注 + 押注），作废回合退款用
   battlefield: Card[]; // 出战区
-  revealedTops: Card[]; // 历次亮出的最大牌（每段出牌一张）
+  playSegments: PlaySegment[]; // 出牌段记录：每段张数 + 该段亮出的最大牌（单张段不亮）
   escrow: number; // 防守托管筹码（不进奖池）
   defensePassed: boolean; // 防守窗口表态"不防守"
   agreeEnd: boolean;
@@ -112,6 +135,7 @@ export interface Secret {
 export interface GameState {
   code: string;
   phase: 'lobby' | 'playing' | 'gameover';
+  settings: RoomSettings;
   players: (Player | null)[]; // 按座位索引，开死后长度固定
   hostSeat: number;
   round: RoundState | null;
@@ -142,12 +166,12 @@ export type GameEvent =
   | { t: 'game_started'; seats: number[] }
   | { t: 'round_start'; roundNo: number; declarerSeat: number; pot: number }
   | { t: 'deal'; counts: [number, number][] } // [seat, 张数]
-  | { t: 'defense_declared'; seat: number; cardCount: number; escrow: number; revealedTop: Card }
+  | { t: 'defense_declared'; seat: number; cardCount: number; escrow: number; revealedTop: Card | null }
   | { t: 'defense_passed'; seat: number }
   | { t: 'defense_window_closed' }
   | { t: 'round_void'; reason: string }
-  | { t: 'play'; seat: number; cardCount: number; bet: number; revealedTop: Card }
-  | { t: 'add_cards'; seat: number; cardCount: number; betDelta: number; revealedTop: Card }
+  | { t: 'play'; seat: number; cardCount: number; bet: number; revealedTop: Card | null }
+  | { t: 'add_cards'; seat: number; cardCount: number; betDelta: number; revealedTop: Card | null }
   | { t: 'add_chips'; seat: number; betDelta: number; betTotal: number }
   | { t: 'fold'; seat: number }
   | { t: 'agree'; seat: number; agree: boolean }

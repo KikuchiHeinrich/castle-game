@@ -125,7 +125,7 @@ describe('服务器集成', () => {
     const room = server.rooms.get(roomCode)!;
     const opponent = seat0 === 0 ? seat1 : seat0;
     // 对手"未公开"的手牌 = 当前手牌 - 曾亮出的最大牌
-    const revealedIds = new Set(room.state.players[opponent]!.revealedTops.map((c) => c.id));
+    const revealedIds = new Set(room.state.players[opponent]!.playSegments.flatMap((s0) => (s0.top ? [s0.top.id] : [])));
     const privateIds = room.state.secret!.hands[opponent].map((c) => c.id).filter((id) => !revealedIds.has(id));
     expect(privateIds.length).toBeGreaterThan(0);
     const stream = JSON.stringify(c0Payloads);
