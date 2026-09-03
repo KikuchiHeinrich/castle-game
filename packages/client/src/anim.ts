@@ -17,6 +17,7 @@ export interface FxHooks {
   renderCards: () => void; // 只重绘卡牌区域
   seatEl: (seat: number) => HTMLElement | null;
   bfZoneEl: (seat: number) => HTMLElement | null; // 座位的出牌段容器（飞牌落点）
+  oppHandEl: (seat: number) => HTMLElement | null; // 对手手牌堆（抽牌动画起点）
   handEl: () => HTMLElement | null;
   ownPlayedEl: () => HTMLElement | null;
   potEl: () => HTMLElement | null;
@@ -195,8 +196,8 @@ async function handle(ev: GameEvent): Promise<void> {
     case 'play':
     case 'add_cards': {
       const own = ev.seat === st.view?.you.seat;
-      // 起点：自己的手牌区 / 对手的座位；终点：各自的出牌区
-      const from = own ? rectOf(h.handEl()) : rectOf(h.seatEl(ev.seat));
+      // 起点：自己的手牌区 / 对手的手牌堆（抽牌）；终点：各自的出牌区
+      const from = own ? rectOf(h.handEl()) : rectOf(h.oppHandEl(ev.seat) ?? h.seatEl(ev.seat));
       const to = rectOf(own ? h.ownPlayedEl() : (h.bfZoneEl(ev.seat) ?? h.seatEl(ev.seat)));
       if (from && to) {
         // 逐张抽出、按序横摆在桌面上

@@ -452,3 +452,25 @@
   font-size: 10px;
   color: var(--dim);
 }
+
+/* ---- 对手手牌堆（蜘蛛纸牌式半叠） ---- */
+.opp-hand {
+  display: flex;
+  align-items: flex-end;
+  min-height: 48px;
+}
+.stack-back {
+  width: 30px;
+  height: 44px;
+  margin-left: -18px;
+  background: repeating-linear-gradient(45deg, #2b3a67 0 4px, #22305a 4px 8px);
+  border: 2px solid var(--card-edge);
+  box-shadow: inset 0 0 0 2px var(--card-face), 1px 1px 0 #00000066;
+}
+.stack-back:first-child { margin-left: 0; }
+.stack-count {
+  font-size: 10px;
+  color: var(--dim);
+  margin-left: 5px;
+  align-self: center;
+}

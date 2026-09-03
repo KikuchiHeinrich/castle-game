@@ -129,6 +129,7 @@ export function mountTable(root: HTMLElement) {
     renderCards: () => renderCards(true),
     seatEl: (seat) => root.querySelector(`.opp-card[data-seat="${seat}"]`) as HTMLElement | null,
     bfZoneEl: (seat) => root.querySelector(`.opp-card[data-seat="${seat}"] .opp-segs`) as HTMLElement | null,
+    oppHandEl: (seat) => root.querySelector(`.opp-card[data-seat="${seat}"] [data-hand]`) as HTMLElement | null,
     handEl: () => els?.hand ?? null,
     ownPlayedEl: () => els?.youPlayed ?? null,
     potEl: () => root.querySelector('#pot-block') as HTMLElement | null,
@@ -203,7 +204,7 @@ function renderOpponents(v: PlayerView) {
       el = document.createElement('div');
       el.className = 'opp-card';
       el.dataset.seat = String(p.seat);
-      el.innerHTML = `<div class="opp-head"></div><div class="opp-meta"></div><div class="opp-segs"></div>`;
+      el.innerHTML = `<div class="opp-head"></div><div class="opp-hand" data-hand></div><div class="opp-meta"></div><div class="opp-segs"></div>`;
       wrap.appendChild(el);
     }
     el.className = oppClass(p, v);
@@ -222,6 +223,21 @@ function renderOpponents(v: PlayerView) {
       `;
     }
 
+    // 手牌堆：蜘蛛纸牌式半叠牌背，代表其全部手牌
+    const handStack = el.querySelector('[data-hand]') as HTMLElement;
+    const handKey = String(p.handCount);
+    if (handStack.dataset.key !== handKey) {
+      handStack.dataset.key = handKey;
+      handStack.innerHTML = '';
+      handStack.title = `手牌 ${p.handCount} 张`;
+      for (let i = 0; i < Math.min(p.handCount, 8); i++) {
+        handStack.appendChild(Object.assign(document.createElement('div'), { className: 'stack-back' }));
+      }
+      const cnt = document.createElement('span');
+      cnt.className = 'stack-count';
+      cnt.textContent = `${p.handCount}`;
+      handStack.appendChild(cnt);
+    }
     const metaKey = `${p.betTotal}|${p.lastAction ?? ''}`;
     const meta = el.querySelector('.opp-meta') as HTMLElement;
     if (meta.dataset.key !== metaKey) {
