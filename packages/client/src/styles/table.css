@@ -222,19 +222,33 @@
 #log {
   position: fixed;
   left: 8px;
-  bottom: 140px;
-  width: 210px;
-  max-height: 26vh;
+  top: 42px;
+  width: 224px;
+  max-height: 40vh;
   overflow-y: auto;
   font-size: 11px;
-  color: var(--dim);
-  background: #000000a0;
-  border: 2px solid #ffffff18;
-  padding: 6px;
+  color: var(--card-face);
+  background: #000000b0;
+  border: 2px solid var(--wood-dark);
   z-index: 60;
   line-height: 1.7;
 }
-#log .log-line.gold { color: var(--gold); }
+#log-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  color: var(--gold);
+  font-size: 12px;
+  border-bottom: 1px solid #ffffff22;
+  background: #00000070;
+  position: sticky;
+  top: 0;
+}
+#log-head .log-av .pixel-avatar { border: 1px solid var(--card-edge); }
+#log-lines { padding: 4px 6px; }
+#log .log-line { padding: 2px 0; border-bottom: 1px dashed #ffffff10; color: var(--dim); }
+#log .log-line:first-child { color: var(--gold); }
 
 /* ---- 筹码 ---- */
 .chip-stack { display: inline-flex; align-items: flex-end; min-width: 10px; }
@@ -409,4 +423,32 @@
 }
 @keyframes tutNext {
   50% { opacity: 0.25; }
+}
+
+/* ---- 中央牌堆（发牌/弃牌动画的起落点） ---- */
+#deck-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+  width: 44px;
+}
+#deck-pile .pile-card {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  width: 30px;
+  height: 42px;
+  background: repeating-linear-gradient(45deg, #2b3a67 0 4px, #22305a 4px 8px);
+  border: 2px solid var(--card-edge);
+  box-shadow: inset 0 0 0 2px var(--card-face);
+}
+#deck-pile .pile-card:nth-child(2) {
+  transform: translate(3px, -3px) rotate(6deg);
+}
+#deck-pile span {
+  margin-top: 44px;
+  font-size: 10px;
+  color: var(--dim);
 }

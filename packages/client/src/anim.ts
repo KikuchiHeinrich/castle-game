@@ -2,6 +2,7 @@ import type { Card, GameEvent, ShowdownEntry } from '../../shared/src/index';
 import { getState } from './store';
 import { createCard } from './components/card';
 import { avatarSVG } from './components/pixelAvatar';
+import { cardLabel } from '../../shared/src/index';
 import { sfx } from './components/sfx';
 
 /**
@@ -21,6 +22,7 @@ export interface FxHooks {
   potEl: () => HTMLElement | null;
   deckEl: () => HTMLElement | null;
   discardEl: () => HTMLElement | null;
+  report: (line: string) => void; // 教官播报战报
   showdownPrepare: (entries: ShowdownEntry[]) => { seat: number; cards: HTMLElement[]; label: HTMLElement }[];
   verdict: (html: string) => Promise<void>; // 教官裁定演出
   banner: (main: string, sub?: string, ms?: number) => Promise<void>;
@@ -162,6 +164,7 @@ async function handle(ev: GameEvent): Promise<void> {
     }
     case 'deal': {
       sfx.deal();
+      h.report(`📦 发牌：每人 ${ev.counts[0]?.[1] ?? 6} 张`);
       const deckRect = rectOf(h.deckEl()) ?? rectOf(h.potEl());
       const flights: Promise<void>[] = [];
       for (const [seat, count] of ev.counts) {
@@ -181,6 +184,7 @@ async function handle(ev: GameEvent): Promise<void> {
       break;
     }
     case 'defense_declared': {
+      h.report(`🔒 ${seatName(ev.seat)} 宣布防守 ${ev.cardCount} 张，托管 ${ev.escrow}`);
       const from = rectOf(h.seatEl(ev.seat));
       if (from) {
         sfx.chip();
@@ -205,6 +209,12 @@ async function handle(ev: GameEvent): Promise<void> {
           await sleep(130);
         }
       }
+      const betText = ev.t === 'play' ? `押 ${ev.bet}` : `加注 ${ev.betDelta}`;
+      h.report(
+        ev.revealedTop
+          ? `⚔ ${seatName(ev.seat)} 出 ${ev.cardCount} 张（亮 ${cardLabel(ev.revealedTop)}）· ${betText}`
+          : `⚔ ${seatName(ev.seat)} 暗出 ${ev.cardCount} 张 · ${betText}`,
+      );
       if (ev.revealedTop) {
         h.renderCards();
         sfx.flip();
@@ -223,6 +233,7 @@ async function handle(ev: GameEvent): Promise<void> {
     }
     case 'add_chips': {
       sfx.chip();
+      h.report(`💰 ${seatName(ev.seat)} 加注 ${ev.betDelta}（累计 ${ev.betTotal}）`);
       const from = rectOf(h.seatEl(ev.seat));
       const pot = rectOf(h.potEl());
       if (from && pot) await flyChips(from, pot, 3);
@@ -232,6 +243,7 @@ async function handle(ev: GameEvent): Promise<void> {
     }
     case 'fold': {
       sfx.fold();
+      h.report(`🏳 ${seatName(ev.seat)} 弃牌离场`);
       const from = rectOf(h.seatEl(ev.seat));
       const discard = rectOf(h.discardEl()) ?? rectOf(h.deckEl());
       if (from && discard) await flyChips(from, discard, 2);
@@ -241,12 +253,14 @@ async function handle(ev: GameEvent): Promise<void> {
     }
     case 'agree': {
       sfx.agree();
+      if (ev.agree) h.report(`✋ ${seatName(ev.seat)} 同意结束`);
       const el = h.seatEl(ev.seat);
       if (el) el.animate([{ filter: 'brightness(1.8)' }, { filter: 'brightness(1)' }], { duration: 300 });
       break;
     }
     case 'showdown': {
       // 逐玩家逐张翻面 + 逐人亮出牌型标签
+      h.report('🔍 摊牌 —— 全员亮牌');
       const prepared = h.showdownPrepare(ev.entries);
       for (let idx = 0; idx < prepared.length; idx++) {
         const entry = prepared[idx];
@@ -277,6 +291,10 @@ async function handle(ev: GameEvent): Promise<void> {
       break;
     }
     case 'winner': {
+      if (ev.seat !== null) {
+        const wInfo = ev.result.entries[0];
+        h.report(`🏆 ${seatName(ev.seat)} 以【${wInfo.handAlias}·${wInfo.handName}】收下 ${ev.pot} 筹码`);
+      }
       if (ev.seat !== null && ev.pot > 0) {
         const pot = rectOf(h.potEl());
         const target = rectOf(h.seatEl(ev.seat));

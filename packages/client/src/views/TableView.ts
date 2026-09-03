@@ -53,6 +53,11 @@ export function mountTable(root: HTMLElement) {
       <div id="opponents"></div>
       <div id="tutorial-slot"></div>
       <div id="center-row">
+        <div id="deck-pile" title="牌堆">
+          <div class="pile-card"></div>
+          <div class="pile-card"></div>
+          <span>牌堆</span>
+        </div>
         <div id="pot-block">
           <div class="pot-chips" id="pot-chips"></div>
           <div>
@@ -73,7 +78,13 @@ export function mountTable(root: HTMLElement) {
         <div id="hand"></div>
       </div>
       <div id="action-bar"></div>
-      <div id="log"></div>
+      <div id="log">
+        <div id="log-head">
+          <span class="log-av">${avatarSVG('shirley', 'neutral', 1.2)}</span>
+          <span>教官播报</span>
+        </div>
+        <div id="log-lines"></div>
+      </div>
       <div id="overlay"></div>
       <div id="drawer"></div>
     </div>
@@ -121,8 +132,9 @@ export function mountTable(root: HTMLElement) {
     handEl: () => els?.hand ?? null,
     ownPlayedEl: () => els?.youPlayed ?? null,
     potEl: () => root.querySelector('#pot-block') as HTMLElement | null,
-    deckEl: () => els?.opponents ?? null,
-    discardEl: () => els?.opponents ?? null,
+    deckEl: () => document.getElementById('deck-pile') as HTMLElement | null,
+    discardEl: () => document.getElementById('deck-pile') as HTMLElement | null,
+    report: (line: string) => reportLine(line),
     showdownPrepare: (entries) => prepareShowdown(entries),
     verdict: (html) => verdictShow(html),
     banner,
@@ -773,21 +785,13 @@ function renderOverlay(v: PlayerView) {
     ov.classList.remove('show');
     ov.innerHTML = '';
   }
-  appendLog(v);
 }
 
-function appendLog(v: PlayerView) {
-  if (!v.result || v.result.entries.length === 0) return;
-  const r = v.result;
-  const line = r.voidRound
-    ? `第 ${v.roundNo} 回合作废：无人竞夺奖池`
-    : `第 ${v.roundNo} 回合：${nameOf(v, r.winnerSeat!)} 以【${r.entries[0].handAlias}·${r.entries[0].handName}】收下 ${r.potAmount} 筹码`;
-  if (logLines[logLines.length - 1] === line) return;
-  logLines.push(line);
-  if (logLines.length > 40) logLines.shift();
-  const log = els!.log;
-  log.innerHTML = logLines.map((l) => `<div class="log-line gold">${l}</div>`).join('');
-  log.scrollTop = log.scrollHeight;
+function reportLine(line: string) {
+  logLines.unshift(line);
+  if (logLines.length > 30) logLines.pop();
+  const box = document.getElementById('log-lines');
+  if (box) box.innerHTML = logLines.map((l) => `<div class="log-line">${l}</div>`).join('');
 }
 
 // ============ 工具 ============
