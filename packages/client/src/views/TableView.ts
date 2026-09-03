@@ -452,20 +452,37 @@ function renderOwnStatus(v: PlayerView) {
 
 function renderHand(v: PlayerView) {
   const hand = els!.hand;
-  const ids = v.you.hand.map((c) => c.id);
-  const key = ids.join(',') + '|' + getState().ui.selected.join(',');
-  if (hand.dataset.key === key) return;
-  hand.dataset.key = key;
-  hand.innerHTML = '';
-  const selected = new Set(getState().ui.selected);
-  for (const c of v.you.hand) {
-    const node = createCard(c, { up: true });
-    if (selected.has(c.id)) node.classList.add('sel');
-    node.dataset.id = c.id;
-    hand.appendChild(node);
+  const ids = v.you.hand.map((c) => c.id).join(',');
+  // 手牌集合变化（发牌/出牌）才重建；选择变化只改样式 → 抽出动画有过渡
+  if (hand.dataset.ids !== ids) {
+    hand.dataset.ids = ids;
+    hand.innerHTML = '';
+    // 自动理牌：花色组 ♠♣♥♦，组内点数从大到小（A 最大）
+    const sorted = [...v.you.hand].sort((a, b) => {
+      const ra = a.rank === 1 ? 14 : a.rank;
+      const rb = b.rank === 1 ? 14 : b.rank;
+      return b.suit - a.suit || rb - ra;
+    });
+    const n = sorted.length;
+    const spread = n > 1 ? Math.min(7, 42 / (n - 1)) : 0;
+    sorted.forEach((c, i) => {
+      const node = createCard(c, { up: true });
+      node.dataset.id = c.id;
+      node.dataset.angle = String((i - (n - 1) / 2) * spread);
+      node.style.transformOrigin = '50% 130%';
+      node.style.marginLeft = i === 0 ? '0' : '-20px';
+      hand.appendChild(node);
+    });
+    if (n === 0) hand.innerHTML = '<span style="color:var(--dim);font-size:12px">手牌已出完</span>';
   }
-  if (v.you.hand.length === 0) {
-    hand.innerHTML = '<span style="color:var(--dim);font-size:12px">手牌已出完</span>';
+  // 选中态：微微抽出（外层上移，CSS transition 出动画）
+  const selected = new Set(getState().ui.selected);
+  for (const node of [...hand.children] as HTMLElement[]) {
+    if (!node.dataset.id) continue;
+    const isSel = selected.has(node.dataset.id);
+    const angle = Number(node.dataset.angle ?? 0);
+    node.classList.toggle('sel', isSel);
+    node.style.transform = `rotate(${angle}deg) translateY(${isSel ? -18 : 0}px)`;
   }
 }
 

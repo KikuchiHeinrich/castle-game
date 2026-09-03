@@ -84,7 +84,7 @@
 
 /* 选中态 */
 .card.sel .card-inner {
-  transform: rotateY(180deg) translateY(-10px);
+  transform: rotateY(180deg);
 }
 .card.sel::after {
   content: '';

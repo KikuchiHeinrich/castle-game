@@ -156,12 +156,14 @@
 
 #hand {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
   justify-content: center;
-  padding: 4px 6px 8px;
+  padding: 10px 12px 8px; /* 顶部留出扇形/抽牌的余量 */
+  min-height: calc(var(--card-h) + 26px);
 }
-#hand .card { cursor: pointer; }
+#hand .card {
+  cursor: pointer;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 
 /* ---- 操作栏 ---- */
 #action-bar {
