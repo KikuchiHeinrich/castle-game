@@ -298,7 +298,8 @@ export function renderTutorial(v: PlayerView, selectedIds: string[]) {
   if (!el || !el.querySelector('.tut-dialog')) {
     el?.remove();
     el = mountTutorialCard();
-    document.body.appendChild(el);
+    // 嵌入桌面布局流（对手区与奖池之间），不悬浮、不遮挡操作区
+    (document.getElementById('tutorial-slot') ?? document.body).appendChild(el);
   }
 
   // 立绘表情跟随步骤（不重触发打字）

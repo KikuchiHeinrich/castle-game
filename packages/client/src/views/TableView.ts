@@ -51,6 +51,7 @@ export function mountTable(root: HTMLElement) {
         <button id="btn-exit" class="ghost">退出</button>
       </div>
       <div id="opponents"></div>
+      <div id="tutorial-slot"></div>
       <div id="center-row">
         <div id="pot-block">
           <div class="pot-chips" id="pot-chips"></div>
