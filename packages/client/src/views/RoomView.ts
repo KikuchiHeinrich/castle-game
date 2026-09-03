@@ -1,9 +1,18 @@
 import { addBot, startGame } from '../net/socket';
 import { renderHandTypes, toggleDrawer } from '../components/drawer';
+import { tutorialActive } from '../components/tutorial';
+import { avatarSVG } from '../components/pixelAvatar';
 import type { PlayerView } from '../../../shared/src/index';
 
 export function mountRoom(root: HTMLElement, view: PlayerView) {
   const isHost = view.isHost;
+  // 教学局：房主自动加教官机器人并开局
+  if (tutorialActive() && isHost && view.players.length === 1) {
+    void (async () => {
+      await addBot();
+      await startGame();
+    })();
+  }
   const canStart = isHost && view.players.filter((p) => p.status !== 'out').length >= 2;
 
   root.innerHTML = `
@@ -21,7 +30,7 @@ export function mountRoom(root: HTMLElement, view: PlayerView) {
             p.seat === view.you.seat ? '（你）' : '',
           ].join(' ');
           return `<div class="cell">
-            <div class="name">${p.name}</div>
+            <div class="name">${p.isBot ? avatarSVG('happy', 1.5) : ''}${p.name}</div>
             <div class="meta">${marks || '&nbsp;'}</div>
           </div>`;
         }).join('')}

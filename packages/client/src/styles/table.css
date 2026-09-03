@@ -1,169 +1,165 @@
-/* ============ 桌面布局 ============ */
+/* ============ 桌面布局 v2：结构化三段式（对手横排 → 中央奖池 → 己方），无绝对定位 ============ */
 
 #table {
   height: 100%;
   display: flex;
   flex-direction: column;
-  position: relative;
+  overflow: hidden;
 }
 
 #table-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
+  padding: 5px 10px;
   font-size: 12px;
   color: var(--dim);
-  z-index: 20;
+  border-bottom: 2px solid var(--wood-dark);
+  flex: none;
 }
 
 #table-header .room-code {
   color: var(--gold);
-  font-size: 16px;
+  font-size: 15px;
   letter-spacing: 4px;
 }
 
+#table-header .round-info { color: var(--card-face); }
 #table-header .spacer { flex: 1; }
+#table-header button { padding: 3px 8px; font-size: 12px; }
 
-#table-header button { padding: 4px 8px; font-size: 12px; }
-
-/* ---- 中央牌桌 ---- */
-#felt-wrap {
-  flex: 1;
-  position: relative;
+/* ---- 第一段：对手卡片横排 ---- */
+#opponents {
+  flex: 1.2 1 0;
   min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  align-content: center;
+  gap: 12px;
+  padding: 8px 10px;
+  overflow-y: auto;
 }
 
-#felt {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  transform: translate(-50%, -50%);
-  width: min(92vw, 900px);
-  height: min(52vh, 380px);
-  background:
-    repeating-linear-gradient(0deg, transparent 0 11px, #00000012 11px 12px),
-    radial-gradient(ellipse at center, var(--felt), var(--felt-dark));
-  border: 4px solid var(--wood-dark);
-  box-shadow:
-    inset 0 0 0 4px var(--wood),
-    inset 0 0 40px #00000055,
-    0 6px 0 #00000066;
-  clip-path: polygon(
-    0 24px, 6px 24px, 6px 12px, 12px 12px, 12px 6px, 24px 6px, 24px 0,
-    calc(100% - 24px) 0, calc(100% - 24px) 6px, calc(100% - 12px) 6px, calc(100% - 12px) 12px, calc(100% - 6px) 12px, calc(100% - 6px) 24px, 100% 24px,
-    100% calc(100% - 24px), calc(100% - 6px) calc(100% - 24px), calc(100% - 6px) calc(100% - 12px), calc(100% - 12px) calc(100% - 12px), calc(100% - 12px) calc(100% - 6px), calc(100% - 24px) calc(100% - 6px), calc(100% - 24px) 100%,
-    24px 100%, 24px calc(100% - 6px), 12px calc(100% - 6px), 12px calc(100% - 12px), 6px calc(100% - 12px), 6px calc(100% - 24px), 0 calc(100% - 24px)
-  );
-}
-
-/* 中央奖池 */
-#pot-area {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  pointer-events: none;
-}
-
-#pot-area .pot-label { font-size: 12px; color: var(--card-face); opacity: 0.75; }
-#pot-area .pot-num { font-size: 30px; color: var(--gold); text-shadow: 2px 2px 0 var(--card-edge); }
-#pot-area .phase-tip { margin-top: 6px; font-size: 13px; color: var(--card-face); }
-#pot-area .max-bet { font-size: 12px; color: var(--dim); }
-
-/* ---- 座位 ---- */
-.seat {
-  position: absolute;
-  transform: translate(-50%, -50%);
+.opp-card {
+  width: 168px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 5px 8px;
-  background: #00000066;
-  border: 2px solid #ffffff22;
-  min-width: 96px;
-  transition: opacity 0.3s, filter 0.3s;
+  gap: 5px;
+  padding: 8px;
+  background: #00000080;
+  border: 2px solid #ffffff26;
+  transition: opacity 0.3s, border-color 0.3s;
 }
 
-.seat.turn {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 2px var(--gold), 0 0 12px var(--gold);
-}
+.opp-card.turn { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+.opp-card.folded { opacity: 0.4; filter: grayscale(1); }
+.opp-card.out { opacity: 0.2; filter: grayscale(1); }
+.opp-card.defended { border-color: var(--chip-b); }
 
-.seat.folded { opacity: 0.45; filter: grayscale(1); }
-.seat.out { opacity: 0.25; filter: grayscale(1); }
-.seat.defended { border-color: var(--chip-b); }
+.opp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.opp-head .opp-name { font-size: 14px; color: var(--card-face); display: flex; gap: 4px; align-items: center; }
+.opp-head .host-mark { color: var(--gold); }
+.opp-head .opp-chips { font-size: 12px; color: var(--gold); white-space: nowrap; }
 
-.seat .seat-name { font-size: 13px; color: var(--card-face); display: flex; gap: 6px; align-items: center; }
-.seat .seat-name .host-mark { color: var(--gold); }
-.seat .seat-chips { font-size: 12px; color: var(--gold); }
-.seat .seat-bet { font-size: 11px; color: var(--chip-w); }
-.seat .seat-action { font-size: 11px; color: var(--dim); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opp-meta { display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); min-height: 18px; }
+.opp-meta .opp-bet { display: flex; align-items: center; gap: 4px; color: var(--chip-w); }
 
-.seat .badge {
+.seat .badge,
+.opp-card .badge {
   font-size: 10px;
-  padding: 1px 4px;
+  padding: 0 3px;
   border: 1px solid currentColor;
 }
-.seat .badge.defense { color: var(--chip-b); }
-.seat .badge.agree { color: var(--gold); }
-.seat .badge.away { color: var(--danger); }
+.badge.defense { color: var(--chip-b); }
+.badge.agree { color: var(--gold); }
+.badge.away { color: var(--danger); }
 
-.seat .seat-cards {
+/* 出牌段：亮牌/暗牌 + 张数标签 */
+.opp-segs {
   display: flex;
-  gap: 3px;
-  align-items: flex-end;
-  min-height: 34px;
-}
-
-.seat .tops { display: flex; gap: 2px; }
-
-/* ---- 己方区域 ---- */
-#own-zone {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px 8px;
-}
-
-#own-battlefield {
-  display: flex;
-  gap: 6px;
-  align-items: flex-end;
-  min-height: calc(var(--card-h) + 8px);
-  justify-content: center;
   flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-end;
+  min-height: 56px;
 }
 
-#own-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  justify-content: center;
-}
-
-#own-hud {
+.seg {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
-  padding: 6px 10px;
+  padding: 3px 4px;
   background: #00000066;
-  border: 2px solid #ffffff22;
-  min-width: 110px;
+  border: 1px solid #ffffff22;
 }
-#own-hud.turn { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+
+.seg .seg-count { font-size: 10px; color: var(--card-face); white-space: nowrap; }
+.seg .seg-count.gold-text { color: var(--gold); }
+
+/* ---- 第二段：中央奖池 ---- */
+#center-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  padding: 6px 12px;
+  border-top: 2px solid var(--wood-dark);
+  border-bottom: 2px solid var(--wood-dark);
+  background: linear-gradient(180deg, var(--felt-dark), #224529);
+  flex: none;
+}
+
+#pot-block { display: flex; align-items: center; gap: 10px; }
+#pot-block .pot-chips { display: flex; min-height: 22px; }
+#pot-block .chip { width: 18px; height: 18px; }
+#pot-block .pot-num { font-size: 30px; color: var(--gold); text-shadow: 2px 2px 0 var(--card-edge); line-height: 1; }
+#pot-block .pot-label { font-size: 12px; color: var(--card-face); text-align: center; }
+
+#phase-block { text-align: left; }
+#phase-tip { font-size: 15px; color: var(--card-face); }
+#max-bet { font-size: 12px; color: var(--dim); margin-top: 2px; }
+#countdown { font-size: 14px; color: var(--gold); margin-top: 2px; }
+
+/* ---- 第三段：己方区域 ---- */
+#you-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 0;
+  flex: none;
+}
+
+#you-played {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: calc(var(--card-h) + 14px);
+}
+
+#own-status {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 3px 12px;
+  font-size: 13px;
+  color: var(--card-face);
+}
+#own-status b { color: var(--gold); }
+#own-status .sep { color: var(--dim); }
 
 #hand {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: center;
-  min-height: calc(var(--card-h) + 12px);
-  padding: 6px;
+  padding: 4px 6px 8px;
 }
 #hand .card { cursor: pointer; }
 
@@ -175,10 +171,10 @@
   gap: 10px;
   flex-wrap: wrap;
   padding: 8px;
-  min-height: 58px;
+  min-height: 56px;
   border-top: 3px solid var(--wood-dark);
-  background: #00000080;
-  z-index: 20;
+  background: #00000090;
+  flex: none;
 }
 
 #action-bar .hint { color: var(--dim); font-size: 12px; }
@@ -186,83 +182,150 @@
 #action-bar .slider-group { display: flex; align-items: center; gap: 6px; }
 #action-bar .slider-group .val { color: var(--gold); min-width: 30px; text-align: center; font-size: 16px; }
 
+/* ---- 教学大卡片 ---- */
+#tutorial-card {
+  position: fixed;
+  left: 50%;
+  bottom: 148px;
+  transform: translateX(-50%);
+  width: min(92vw, 640px);
+  z-index: 130;
+  background: var(--night-2);
+  border: 3px solid var(--gold);
+  box-shadow: 6px 6px 0 #000000aa;
+  padding: 12px 18px 14px;
+}
+
+#tutorial-card .tut-step { font-size: 12px; color: var(--dim); letter-spacing: 2px; }
+#tutorial-card .tut-title { font-size: 22px; color: var(--gold); margin: 2px 0 6px; text-shadow: 2px 2px 0 #00000088; }
+#tutorial-card .tut-text p { font-size: 14px; line-height: 1.9; margin: 2px 0; color: var(--card-face); }
+#tutorial-card .tut-text em { font-style: normal; color: var(--gold); }
+#tutorial-card .tut-num { color: var(--gold); font-size: 15px; }
+#tutorial-card .tut-actions { display: flex; gap: 10px; margin-top: 8px; }
+#tutorial-card .tut-skip { font-size: 11px; color: var(--dim); margin-top: 6px; }
+
+/* 教学高亮指引 */
+.tut-hl {
+  outline: 3px solid var(--gold) !important;
+  outline-offset: 2px;
+  animation: tutPulse 1.2s steps(2) infinite;
+}
+@keyframes tutPulse {
+  50% { outline-color: #e8b04b44; }
+}
+
 /* ---- 日志 ---- */
 #log {
   position: fixed;
   left: 8px;
-  bottom: 130px;
-  width: 220px;
-  max-height: 30vh;
+  bottom: 140px;
+  width: 210px;
+  max-height: 26vh;
   overflow-y: auto;
   font-size: 11px;
   color: var(--dim);
-  background: #00000080;
+  background: #000000a0;
   border: 2px solid #ffffff18;
   padding: 6px;
-  z-index: 15;
+  z-index: 60;
   line-height: 1.7;
 }
-#log .log-line b { color: var(--card-face); }
 #log .log-line.gold { color: var(--gold); }
 
-@media (max-width: 720px) {
-  :root {
-    --card-w: 48px;
-    --card-h: 67px;
-    --card-mini-w: 28px;
-    --card-mini-h: 40px;
-  }
-  #log { display: none; }
-  .seat { min-width: 76px; }
-  .seat .seat-action { display: none; }
+/* ---- 筹码 ---- */
+.chip-stack { display: inline-flex; align-items: flex-end; min-width: 10px; }
+.chip {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px dashed var(--card-edge);
+  box-shadow: inset 0 0 0 2px #ffffff55, 1px 1px 0 #00000088;
+  margin-left: -7px;
+}
+.chip:first-child { margin-left: 0; }
+.chip:nth-child(3n + 1) { background: var(--chip-r); }
+.chip:nth-child(3n + 2) { background: var(--chip-b); }
+.chip:nth-child(3n) { background: var(--chip-w); }
+
+/* 牌型用牌细金边 */
+.card.mark::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid #e8b04bcc;
+  pointer-events: none;
 }
 
-/* ---- 大厅 / 房间 ---- */
-#lobby, #room {
-  height: 100%;
+/* 飞行卡牌 */
+.fly-card { position: fixed; z-index: 180; pointer-events: none; will-change: transform; }
+
+/* ---- 小屏适配 ---- */
+@media (max-width: 720px) {
+  :root {
+    --card-w: 46px;
+    --card-h: 64px;
+    --card-mini-w: 30px;
+    --card-mini-h: 42px;
+  }
+  .opp-card { width: 140px; }
+  #log { display: none; }
+  #tutorial-card { bottom: 132px; padding: 10px 12px; }
+  #tutorial-card .tut-title { font-size: 18px; }
+  #tutorial-card .tut-text p { font-size: 12.5px; line-height: 1.7; }
+  #center-row { gap: 14px; }
+  #pot-block .pot-num { font-size: 24px; }
+}
+
+/* ---- 教学大卡片 v2：教官立绘 + 打字机对话 ---- */
+#tutorial-card {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+
+#tutorial-card .tut-portrait {
+  flex: none;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 18px;
+  gap: 6px;
+  padding: 6px 10px;
+  border-right: 2px dashed var(--wood);
 }
-
-.title {
-  font-size: 64px;
+#tutorial-card .tut-portrait .pixel-avatar {
+  border: 2px solid var(--card-edge);
+  background: #ffffff12;
+  box-shadow: 3px 3px 0 #00000088;
+}
+#tutorial-card .tut-name {
+  font-size: 12px;
   color: var(--gold);
-  text-shadow: 4px 4px 0 var(--wood-dark), 8px 8px 0 #00000066;
-  letter-spacing: 12px;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
 
-.subtitle { color: var(--dim); font-size: 13px; }
+#tutorial-card .tut-dialog {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+#tutorial-card .tut-title { margin-top: 0; }
 
-.menu { display: flex; flex-direction: column; gap: 12px; align-items: center; }
-.menu .row { display: flex; gap: 8px; align-items: center; }
-
-#room .code-big {
-  font-size: 48px;
+/* 打字机光标 */
+.tut-text.typing::after {
+  content: '▌';
   color: var(--gold);
-  letter-spacing: 10px;
-  text-shadow: 3px 3px 0 #00000066;
-  cursor: pointer;
+  animation: tutCaret 0.7s steps(2) infinite;
+}
+@keyframes tutCaret {
+  50% { opacity: 0; }
 }
 
-.seat-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 150px);
-  gap: 10px;
-}
+.opp-name .pixel-avatar { display: inline-block; vertical-align: -6px; margin-right: 3px; }
+.seat-grid .name .pixel-avatar { display: inline-block; vertical-align: -8px; margin-right: 6px; }
 
-.seat-grid .cell {
-  padding: 10px;
-  text-align: center;
-  background: #00000066;
-  border: 2px solid #ffffff22;
-  min-height: 64px;
+@media (max-width: 720px) {
+  #tutorial-card .tut-portrait-svg .pixel-avatar { width: 48px; height: 66px; }
+  #tutorial-card .tut-portrait { padding: 4px 6px; }
 }
-.seat-grid .cell.empty { opacity: 0.35; }
-.seat-grid .cell .name { font-size: 15px; color: var(--card-face); }
-.seat-grid .cell .meta { font-size: 11px; color: var(--dim); margin-top: 4px; }
-.seat-grid .cell .meta .host { color: var(--gold); }
-
-.loading { color: var(--dim); font-size: 13px; }

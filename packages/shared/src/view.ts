@@ -1,4 +1,4 @@
-import { Card, GameEvent, GameState, Player, PlayerStatus, RoundPhase, ShowdownResult } from './types';
+import { Card, GameEvent, GameState, PlaySegment, Player, PlayerStatus, RoundPhase, ShowdownResult } from './types';
 import { allPlayers, getPlayer } from './seating';
 import { LegalActions, emptyLegal, legalActions } from './legal';
 
@@ -20,7 +20,7 @@ export interface PublicPlayer {
   escrow: number;
   handCount: number;
   battlefieldCount: number;
-  revealedTops: Card[]; // 历次亮出的最大牌（公开信息）
+  playSegments: PlaySegment[]; // 出牌段（全为公开信息）
   agreeEnd: boolean;
   lastAction: string;
 }
@@ -33,7 +33,7 @@ export interface YouView {
   status: PlayerStatus;
   hand: Card[]; // 只有自己有真实手牌
   battlefield: Card[];
-  revealedTops: Card[];
+  playSegments: PlaySegment[];
   betTotal: number;
   invested: number;
   escrow: number;
@@ -47,6 +47,7 @@ export interface YouView {
 export interface PlayerView {
   code: string;
   phase: GameState['phase'];
+  settings: GameState['settings'];
   stateSeq: number;
   eventSeq: number;
   isHost: boolean;
@@ -86,7 +87,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
     escrow: p.escrow,
     handCount: s.secret?.hands[p.seat]?.length ?? 0,
     battlefieldCount: p.battlefield.length,
-    revealedTops: [...p.revealedTops],
+    playSegments: p.playSegments.map((s0) => ({ ...s0 })),
     agreeEnd: p.agreeEnd,
     lastAction: p.lastAction,
   });
@@ -94,6 +95,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
   return {
     code: s.code,
     phase: s.phase,
+    settings: { ...s.settings },
     stateSeq: s.stateSeq,
     eventSeq: s.eventSeq,
     isHost: me.isHost,
@@ -116,7 +118,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
       status: me.status,
       hand: s.secret ? [...(s.secret.hands[seat] ?? [])] : [],
       battlefield: [...me.battlefield],
-      revealedTops: [...me.revealedTops],
+      playSegments: me.playSegments.map((s0) => ({ ...s0 })),
       betTotal: me.betTotal,
       invested: me.invested,
       escrow: me.escrow,

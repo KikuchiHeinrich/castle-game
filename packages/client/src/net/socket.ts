@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import type { GameAction, GameEvent, PlayerView } from '../../../shared/src/index';
+import type { GameAction, GameEvent, PlayerView, RoomSettings } from '../../../shared/src/index';
 import { getState, setScreen, setView, toast } from '../store';
 import { enqueueEvent } from '../anim';
 
@@ -87,8 +87,8 @@ export function request<T extends AckResult>(event: string, payload: unknown = {
 
 // ---- 高层动作 ----
 
-export async function createRoom(name: string) {
-  const res = await request<{ ok: boolean; error?: string; roomCode: string; seat: number; token: string }>('room:create', { name });
+export async function createRoom(name: string, settings?: Partial<RoomSettings>) {
+  const res = await request<{ ok: boolean; error?: string; roomCode: string; seat: number; token: string }>('room:create', { name, settings });
   if (!res.ok) return toast(res.error ?? '创建失败');
   saveSession(res.roomCode, res.token);
   setScreen('room');

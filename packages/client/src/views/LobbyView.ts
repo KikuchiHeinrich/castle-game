@@ -1,24 +1,55 @@
+import type { RoomSettings } from '../../../shared/src/index';
 import { createRoom, joinRoom } from '../net/socket';
 import { getState, saveName } from '../store';
 import { renderHandTypes, toggleDrawer } from '../components/drawer';
+import { startTutorial } from '../components/tutorial';
 
 export function mountLobby(root: HTMLElement) {
   const ui = getState().ui;
   root.innerHTML = `
     <div id="lobby">
       <div class="title">城 堡</div>
-      <div class="subtitle">原创扑克筹码博弈 · 支持 2~6 人在线对战 · 出牌即押注，杂牌会掺水</div>
+      <div class="subtitle">原创扑克筹码博弈 · 2~6 人在线对战 · 出牌即押注，杂牌会掺水</div>
       <div class="menu pixel-panel">
         <div class="row">
           <input id="name" type="text" maxlength="12" placeholder="你的昵称" value="${ui.name.replace(/"/g, '')}" style="width:180px" />
         </div>
         <div class="row">
           <button id="btn-create" class="primary">创建房间</button>
+          <button id="btn-tutorial">🧙 新手教学局</button>
         </div>
         <div class="row">
           <input id="code" type="text" maxlength="4" placeholder="房间码" value="${ui.joinCode}" style="width:110px;text-transform:uppercase" />
           <button id="btn-join">加入</button>
         </div>
+        <details id="cfg" style="width:100%">
+          <summary style="cursor:pointer;color:var(--dim);font-size:12px">⚙ 自定义参数（可选）</summary>
+          <div class="cfg-row"><span>回合限时</span>
+            <select id="cfg-turn">
+              <option value="30">30 秒</option>
+              <option value="60" selected>60 秒</option>
+              <option value="120">120 秒</option>
+              <option value="300">5 分钟</option>
+              <option value="0">不限时</option>
+            </select>
+          </div>
+          <div class="cfg-row"><span>初始筹码</span>
+            <select id="cfg-chips">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+          <div class="cfg-row"><span>每回合底注</span>
+            <select id="cfg-ante">
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+          <div class="cfg-note">底注过高会加速淘汰；不限时建议熟悉规则后再用</div>
+        </details>
       </div>
       <div class="row">
         <button id="btn-types" class="ghost">牌型总表</button>
@@ -49,9 +80,29 @@ export function mountLobby(root: HTMLElement) {
     return name;
   };
 
+  const collectSettings = (): Partial<RoomSettings> => {
+    const turnSec = Number(root.querySelector<HTMLSelectElement>('#cfg-turn')!.value);
+    const turnMs = turnSec * 1000;
+    return {
+      turnMs,
+      defenseMs: turnMs === 0 ? 0 : Math.max(15_000, Math.round(turnMs / 2)),
+      idleMs: turnMs === 0 ? 0 : Math.max(60_000, turnMs * 6),
+      startChips: Number(root.querySelector<HTMLSelectElement>('#cfg-chips')!.value),
+      ante: Number(root.querySelector<HTMLSelectElement>('#cfg-ante')!.value),
+    };
+  };
+
   root.querySelector('#btn-create')!.addEventListener('click', () => {
     const name = ensureName();
-    if (name) void createRoom(name);
+    if (name) void createRoom(name, collectSettings());
+  });
+
+  root.querySelector('#btn-tutorial')!.addEventListener('click', () => {
+    const name = ensureName();
+    if (!name) return;
+    startTutorial();
+    // 教学局：宽限时长 + 1 名教官机器人
+    void createRoom(name, { turnMs: 120_000, defenseMs: 30_000, idleMs: 600_000, startChips: 100, ante: 1 });
   });
 
   root.querySelector('#btn-join')!.addEventListener('click', () => {
@@ -63,6 +114,7 @@ export function mountLobby(root: HTMLElement) {
       codeEl.focus();
       return;
     }
+    sessionStorage.removeItem('castle.tutorial');
     void joinRoom(code, name);
   });
 

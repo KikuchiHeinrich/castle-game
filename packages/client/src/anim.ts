@@ -12,6 +12,7 @@ export interface FxHooks {
   renderAll: () => void; // 立即把桌面渲染到最新快照（跳过动画）
   renderCards: () => void; // 只重绘卡牌区域
   seatEl: (seat: number) => HTMLElement | null;
+  bfZoneEl: (seat: number) => HTMLElement | null; // 座位的出牌区（飞牌落点）
   handEl: () => HTMLElement | null;
   ownBattlefieldEl: () => HTMLElement | null;
   potEl: () => HTMLElement | null;
@@ -174,18 +175,13 @@ async function handle(ev: GameEvent): Promise<void> {
     case 'play':
     case 'add_cards': {
       const own = ev.seat === st.view?.you.seat;
-      let from: DOMRect | null;
-      if (own) {
-        from = rectOf(h.handEl());
-      } else {
-        from = rectOf(h.seatEl(ev.seat));
-      }
-      const bfEl = own ? h.ownBattlefieldEl() : h.seatEl(ev.seat);
-      const to = rectOf(bfEl);
+      // 起点：自己的手牌区 / 对手的座位（手牌所在）；终点：各自的出牌区 → 有真实位移
+      const from = own ? rectOf(h.handEl()) : rectOf(h.seatEl(ev.seat));
+      const to = rectOf(own ? h.ownBattlefieldEl() : (h.bfZoneEl(ev.seat) ?? h.seatEl(ev.seat)));
       if (from && to) {
         const flights: Promise<void>[] = [];
         for (let k = 0; k < Math.min(ev.cardCount, 3); k++) {
-          flights.push(flyCardFace(null, from, to, 340).then(() => sleep(50)));
+          flights.push(flyCardFace(null, from, to, 340).then(() => sleep(60)));
         }
         await Promise.all(flights);
       }
