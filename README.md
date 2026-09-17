@@ -4,6 +4,22 @@
 
 > 设计稿：`~/Downloads/城堡·.txt` + 与设计者逐条确认的补充规则（见下方"规则速览"）。
 
+## 美术素材
+
+牌面、按钮、卡背、音效、点阵字体都取自 `Kingslayer_demo_20250322`（另一份引擎无关的
+demo，只用素材、不涉及代码）。素材放在 `packages/client/public/king/`，构建时原样拷到
+`dist/king/`，运行期按 `/king/...` 引用。
+
+- 牌面用对方的 13×5 图集（单格 49×65），靠 `background-position` 定位——
+  手牌 2 倍格、出战区 1 倍格，整数倍缩放所以点阵不糊
+- 按钮用素材帧做 `border-image` 九宫格，图标另行切出来由 `::before` 贴回去
+- 中文字体把 12.4MB 的 `namidiansong.ttf` 子集化成 85KB woff2；它是 **17px 点阵字体**，
+  只有 17px / 34px 锐利，所以正文一律 17px
+- 音效优先播真实素材，素材未就绪时回落到程序化合成，任何情况下都有反馈
+
+素材切分与字体子集化的步骤见 [`scripts/README-art.md`](scripts/README-art.md)；
+按钮切分脚本是 `scripts/slice-art.py`。
+
 ## 规则速览
 
 - 52 张牌无王，A 可作高也可作低；花色序 黑桃>梅花>红桃>方片

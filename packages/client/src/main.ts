@@ -41,7 +41,7 @@ function route() {
   }
 
   if (screen !== currentScreen) {
-    // 场景切换：重挂载
+    // 场景切换：重挂载（freshIds 保留：首轮发牌与进入牌桌同时发生，setView 自会维护）
     currentScreen = screen;
     resetQueue();
     patchUI({ selected: [], bet: null, escrow: null });

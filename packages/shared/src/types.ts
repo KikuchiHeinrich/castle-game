@@ -52,9 +52,19 @@ export type RoundPhase = 'defense_window' | 'opening' | 'rotation' | 'settlement
 export interface RoomSettings {
   startChips: number; // 初始筹码
   ante: number; // 每回合底注
-  defenseMs: number; // 防守窗口时长
-  turnMs: number; // 宣战/轮转单人时长
-  idleMs: number; // 全桌无动作兜底
+  defenseMs: number; // 防守宣言阶段时长（0 = 不限时）
+  turnMs: number; // 宣战 / 跟牌：每人行动时长（0 = 不限时）
+  /** 摊牌展示时长：等这么久再开下一回合（0 = 不等待，立刻继续） */
+  settlementMs: number;
+  /** 底注递增间隔：每这么多回合底注 +1（0 = 不递增）。用于加速收敛 */
+  anteRamp: number;
+  /**
+   * 回合上限：打到这个回合数仍未分出胜负时，筹码最多者获胜（0 = 无上限）。
+   * 必须有这个上限——底注只是加大步长、奖池全额返还，筹码本身是无漂移的
+   * 随机游走，纯靠淘汰可能要几百回合，一局能拖一个小时。
+   */
+  maxRounds: number;
+  idleMs: number; // 全桌无动作兜底（0 = 不限时）
   chipMultiplier: number; // 筹码倍数：押注上限 = 出战区牌数 × 倍数
 }
 
@@ -63,9 +73,29 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   ante: 1,
   defenseMs: 20_000,
   turnMs: 60_000,
+  settlementMs: 5_000,
+  anteRamp: 3,
+  maxRounds: 30,
   idleMs: 180_000,
   chipMultiplier: 1,
 };
+
+/**
+ * 各设置项的合法区间，前后端共用：客户端据此限制输入，服务端据此夹紧。
+ * 时长项的 lo 是"有效的最小值"；0 是额外允许的特例，含义是"不限时"
+ * （摊牌展示的 0 是"不等待"）。客户端要按同样的规则回显，别把玩家填的 0 夹成 lo。
+ */
+export const SETTINGS_RANGE = {
+  startChips: { lo: 10, hi: 100_000, step: 10 },
+  ante: { lo: 1, hi: 1_000, step: 1 },
+  defenseMs: { lo: 5_000, hi: 600_000, step: 5_000 },
+  turnMs: { lo: 10_000, hi: 1_200_000, step: 5_000 },
+  settlementMs: { lo: 0, hi: 60_000, step: 1_000 },
+  anteRamp: { lo: 0, hi: 50, step: 1 },
+  maxRounds: { lo: 0, hi: 999, step: 5 },
+  idleMs: { lo: 30_000, hi: 3_600_000, step: 10_000 },
+  chipMultiplier: { lo: 1, hi: 5, step: 1 },
+} as const;
 
 /** 出牌段：本次打出几张 + 亮出的最大牌（仅 1 张的段不亮牌，top 为 null） */
 export interface PlaySegment {
@@ -123,6 +153,8 @@ export interface RoundState {
   openerSeat: number; // 开局者
   turnSeat: number; // 轮转中当前行动者
   pot: number;
+  /** 本回合实际底注（受底注递增影响，会逐段变大） */
+  ante: number;
   maxBet: number; // 未弃牌且未防守玩家的累计押注最大值
   deadlineAt: number; // 毫秒时间戳，0=无
   lastActionAt: number;
@@ -167,7 +199,7 @@ export type ActionResult = { ok: true; state: GameState; events: GameEvent[] } |
 
 export type GameEvent =
   | { t: 'game_started'; seats: number[] }
-  | { t: 'round_start'; roundNo: number; declarerSeat: number; pot: number }
+  | { t: 'round_start'; roundNo: number; declarerSeat: number; pot: number; ante: number }
   | { t: 'deal'; counts: [number, number][] } // [seat, 张数]
   | { t: 'defense_declared'; seat: number; cardCount: number; escrow: number; revealedTop: Card | null }
   | { t: 'defense_passed'; seat: number }

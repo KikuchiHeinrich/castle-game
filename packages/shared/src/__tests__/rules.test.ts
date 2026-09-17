@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Card, GameAction, GameState, ANTE, HAND_SIZE, START_CHIPS, TIMING, addPlayer, applyAction, createGameState, normalizeSettings, rematch, startGame, tick } from '../index';
+import { Card, DEFAULT_SETTINGS, GameAction, GameState, ANTE, HAND_SIZE, START_CHIPS, TIMING, addPlayer, applyAction, createGameState, normalizeSettings, rematch, SETTINGS_RANGE, startGame, tick } from '../index';
 
 const T0 = 1_000_000;
 const TURN_MS = 60_000; // 与 DEFAULT_SETTINGS.turnMs 一致
@@ -75,6 +75,60 @@ const nextVoterOf = (s: GameState, from: number): number => {
   }
   throw new Error('no voter');
 };
+
+describe('房间设置单位', () => {
+  it('时长按毫秒归一化，大厅各个"回合限时"选项互不相同', () => {
+    // 单位回归：曾把入参当秒乘 1000，导致 30 秒/60 秒/5 分钟全被夹成同一个值
+    expect(normalizeSettings({ turnMs: 30_000 }).turnMs).toBe(30_000);
+    expect(normalizeSettings({ turnMs: 60_000 }).turnMs).toBe(60_000);
+    expect(normalizeSettings({ turnMs: 300_000 }).turnMs).toBe(300_000);
+    expect(new Set([30_000, 60_000, 120_000, 300_000].map((v) => normalizeSettings({ turnMs: v }).turnMs)).size).toBe(4);
+    // 0 = 不限时；超范围夹到上下限
+    expect(normalizeSettings({ turnMs: 0 }).turnMs).toBe(0);
+    expect(normalizeSettings({ turnMs: 1 }).turnMs).toBe(10_000);
+    expect(normalizeSettings({ turnMs: 99_999_999 }).turnMs).toBe(1_200_000);
+    // 教学局用的时长要原样保留，不能被夹走
+    const tut = normalizeSettings({ turnMs: 300_000, defenseMs: 240_000, idleMs: 900_000 });
+    expect(tut).toMatchObject({ turnMs: 300_000, defenseMs: 240_000, idleMs: 900_000 });
+    // 缺省时回落到 DEFAULT_SETTINGS
+    expect(normalizeSettings({}).turnMs).toBe(DEFAULT_SETTINGS.turnMs);
+  });
+
+  it('初始筹码与各阶段限时都能逐项自定义', () => {
+    const s = normalizeSettings({
+      startChips: 37,
+      defenseMs: 45_000,
+      turnMs: 90_000,
+      settlementMs: 9_000,
+      idleMs: 600_000,
+    });
+    expect(s).toMatchObject({
+      startChips: 37,
+      defenseMs: 45_000,
+      turnMs: 90_000,
+      settlementMs: 9_000,
+      idleMs: 600_000,
+    });
+    // 摊牌展示：0 = 不等待，立刻开下一回合（不是"无限等"）
+    expect(normalizeSettings({ settlementMs: 0 }).settlementMs).toBe(0);
+    expect(normalizeSettings({ settlementMs: 999_999 }).settlementMs).toBe(60_000);
+  });
+
+  it('SETTINGS_RANGE 与 normalizeSettings 的夹紧区间一致（防止前后端各处写一份而走散）', () => {
+    const r = SETTINGS_RANGE;
+    for (const [key, range] of Object.entries(r)) {
+      const k = key as keyof typeof r;
+      const below = normalizeSettings({ [k]: range.lo - 1 } as never)[k];
+      const above = normalizeSettings({ [k]: range.hi + 1 } as never)[k];
+      expect(below, `${key} 下界`).toBe(range.lo);
+      expect(above, `${key} 上界`).toBe(range.hi);
+    }
+    // 0 是合法的"不限时 / 不等待"，不能被夹成下界
+    expect(normalizeSettings({ turnMs: 0 }).turnMs).toBe(0);
+    expect(normalizeSettings({ defenseMs: 0 }).defenseMs).toBe(0);
+    expect(normalizeSettings({ idleMs: 0 }).idleMs).toBe(0);
+  });
+});
 
 describe('开局', () => {
   it('发牌 6 张、扣底注、进入防守窗口', () => {

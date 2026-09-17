@@ -1,34 +1,82 @@
-/* ============ 城堡 · 基础样式：配色 / 字体 / 控件 ============ */
+/* ============ 城堡 · 基础样式：Kingslayer 素材配色 / 像素字体 / 控件 ============ */
 
-/* 缝合像素字体（含简体中文字形，78 个 unicode-range 子集按需加载） */
+/* 缝合像素字体（含简体中文字形，78 个 unicode-range 子集按需加载）
+   —— 兼任小字字体，以及玩家昵称等生僻字的兜底。
+   @import 必须排在所有规则之前，否则会被丢弃。 */
 @import '@vp-tw/cjk-web-fonts-fusion-pixel-font/dist/12px/proportional/zh_hans/Fusion-Pixel-12px-Proportional-Simplified-Chinese.css';
 
+/* 字号说明：NanoDyongSong 是 17px 点阵字体，只有 17 与 34 是整数倍缩放，
+   其它尺寸会糊，所以正文一律 17px、大号一律 34px。
+   12px 的密集小字（战报、牌型表）交给 Fusion Pixel，它本身就是 12px 设计。 */
+@font-face {
+  font-family: 'NanoDyongSong';
+  src: url('/king/font/NanoDyongSong-subset.woff2') format('woff2');
+  font-display: swap;
+}
+
 :root {
-  /* 16 色调色板 */
-  --night: #14121c;
-  --night-2: #1c1930;
-  --felt: #2f5d3a;
-  --felt-dark: #285233;
-  --wood: #8a6239;
-  --wood-dark: #6b4a2b;
-  --card-face: #f4e9d0;
-  --card-edge: #3a2f22;
-  --red: #d94f45;
-  --ink: #2b2b33;
-  --gold: #e8b04b;
-  --chip-w: #e8e3d5;
-  --chip-r: #c8453f;
-  --chip-b: #3f6fc8;
-  --danger: #a83232;
-  --dim: #8f8a9e;
+  /* —— 全部取自 Kingslayer 素材实测色值 —— */
+  --edge: #0a0812;       /* 最暗描边 */
+  --ink: #140e1e;        /* 牌面/按钮描边（偏紫的黑） */
+  --paper: #effaf6;      /* 牌面米白 */
+  --paper-sh: #abc4bb;   /* 牌面阴影 */
 
-  --font-pixel: 'Fusion Pixel 12px Proportional Simplified Chinese', 'PingFang SC', 'Microsoft YaHei', monospace;
+  --night: #12111a;      /* 页面底色 */
+  --panel: #241f2e;      /* 面板 */
+  --panel-2: #322b3e;    /* 面板亮面 */
+  --panel-edge: #131e17; /* 素材里卡背/牌堆的墨绿描边 */
 
-  /* 卡牌尺寸（12px 网格的倍数） */
-  --card-w: 60px;
-  --card-h: 84px;
-  --card-mini-w: 36px;
-  --card-mini-h: 50px;
+  --text: #effaf6;
+  --text-dim: #9badb7;
+  --text-mute: #847e87;
+
+  --stone: #564b5a;      /* 中性按钮（返回/退出） */
+  --stone-hi: #6b5e70;
+  --steel: #5b6ee1;      /* 次行动（防守/同意） */
+  --steel-hi: #639bff;
+  --blood: #7b2222;      /* 主行动（出战/押注） */
+  --blood-hi: #962f2f;
+  --blood-lo: #5b0707;
+  --arcane: #5e3c69;     /* 工具（牌型表） */
+  --arcane-hi: #744d81;
+
+  --silver: #c9d1dc;     /* 银边：组成牌型的牌 */
+  --gold: #dd8c00;       /* 强调金（K 的王冠） */
+  --gold-hi: #ffc85a;
+  --heart: #942239;      /* 筹码红 */
+  --heart-hi: #c21527;
+  --spade: #2e4152;      /* 筹码深 */
+
+  --font-display: 'NanoDyongSong', 'Fusion Pixel 12px Proportional Simplified Chinese', monospace;
+  --font-pixel: 'Fusion Pixel 12px Proportional Simplified Chinese', 'NanoDyongSong', monospace;
+
+  --fs: 17px;            /* 正文（点阵字体的原生尺寸） */
+  --fs-lg: 34px;         /* 大号 */
+  --fs-sm: 12px;         /* 密集小字 */
+
+  /* 卡牌尺寸：图集单格 49×65，1x 用于小牌，2x 用于手牌 */
+  --card-w: 98px;
+  --card-h: 130px;
+  --card-mini-w: 49px;
+  --card-mini-h: 65px;
+  /* 横向叠放的遮挡量：CSS 布局与发牌动画的落点计算共用，改一处即可 */
+  --card-overlap: 30px;
+  --card-mini-overlap: 22px;
+
+  /* 按钮九宫格切边（源图 64×32，切片按源像素计）
+     不加 fill：中段由 background-color 平涂，避免把源图中间的区域拉伸变形 */
+  --btn-slice: 8 12 8 12;
+
+  /* 按钮各状态的中段底色（scripts/slice-art.py 实测输出） */
+  --btn-disabled: #5c5c5c;
+  --btn-attack: #7b2222;
+  --btn-attack-down: #5b0707;
+  --btn-defense: #5b6ee1;
+  --btn-defense-down: #3d4fbb;
+  --btn-arcane: #5e3c69;
+  --btn-arcane-down: #3e1e49;
+  --btn-stone: #564b5a;
+  --btn-stone-down: #372c3b;
 }
 
 * {
@@ -46,193 +94,275 @@ body,
 }
 
 body {
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--card-face);
-  background:
-    repeating-linear-gradient(0deg, transparent 0 22px, #ffffff05 22px 24px),
-    repeating-linear-gradient(90deg, transparent 0 22px, #ffffff05 22px 24px),
-    radial-gradient(ellipse at 50% 30%, var(--night-2), var(--night));
+  font-family: var(--font-display);
+  font-size: var(--fs);
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--night);
   image-rendering: pixelated;
   user-select: none;
 }
 
+/* 星云底：素材 index/background.png 铺满 + 暗角，不重复平铺（原图非无缝） */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 50% 40%, #0000 0%, #0a0812cc 72%, #0a0812 100%),
+    url('/king/ui/nebula.png') center / cover no-repeat,
+    var(--night);
+}
+
+/* ============ 按钮：Kingslayer 按钮图集九宫格拉伸 ============
+   边框取自素材切片（1:1 原生像素），中段用与素材一致的纯色平涂。 */
+
 button {
-  font-family: var(--font-pixel);
-  font-size: 14px;
-  color: var(--card-face);
-  background: var(--wood);
-  border: 2px solid var(--card-edge);
-  box-shadow:
-    inset 0 -4px 0 #00000040,
-    inset 0 3px 0 #ffffff30,
-    0 4px 0 #00000066;
-  padding: 8px 14px;
+  font-family: var(--font-display);
+  font-size: var(--fs);
+  line-height: 1;
+  color: #fff;
+  text-shadow: 1px 1px 0 var(--edge);
   cursor: pointer;
+  border-style: solid;
+  border-width: 8px 12px;
+  border-image-slice: var(--btn-slice);
+  border-image-repeat: stretch;
+  border-image-source: url('/king/ui/btn_back_1.png');
+  background-color: var(--btn-stone);
+  background-image: none;
+  padding: 0 6px;
+  min-height: 36px;
   image-rendering: pixelated;
 }
 
-button:hover { filter: brightness(1.1); }
+button:hover:not(:disabled) {
+  border-image-source: url('/king/ui/btn_back_2.png');
+  filter: brightness(1.12);
+}
 
-button:active {
-  transform: translateY(4px);
-  box-shadow:
-    inset 0 -2px 0 #00000040,
-    inset 0 2px 0 #ffffff30,
-    0 0 0 #00000066;
+button:active:not(:disabled) {
+  border-image-source: url('/king/ui/btn_back_3.png');
+  background-color: var(--btn-stone-down);
+  transform: translateY(2px);
 }
 
 button:disabled {
-  filter: grayscale(0.8) brightness(0.7);
+  border-image-source: url('/king/ui/btn_back_0.png');
+  background-color: var(--btn-disabled);
+  color: var(--text-mute);
+  text-shadow: none;
   cursor: not-allowed;
-  transform: none;
 }
 
-button.primary { background: var(--gold); color: var(--card-edge); }
-button.danger { background: var(--danger); }
-button.ghost {
-  background: var(--night-2);
-  box-shadow: inset 0 0 0 2px #ffffff18, 0 3px 0 #00000066;
+/* 主行动：红剑（出战 / 押注确认） */
+button.primary {
+  border-image-source: url('/king/ui/btn_attack_1.png');
+  background-color: var(--btn-attack);
 }
+button.primary:hover:not(:disabled) {
+  border-image-source: url('/king/ui/btn_attack_2.png');
+}
+button.primary:active:not(:disabled) {
+  border-image-source: url('/king/ui/btn_attack_3.png');
+  background-color: var(--btn-attack-down);
+}
+
+/* 次行动：蓝盾（防守 / 同意结束） */
+button.steel {
+  border-image-source: url('/king/ui/btn_defense_1.png');
+  background-color: var(--btn-defense);
+}
+button.steel:hover:not(:disabled) {
+  border-image-source: url('/king/ui/btn_defense_2.png');
+}
+button.steel:active:not(:disabled) {
+  border-image-source: url('/king/ui/btn_defense_3.png');
+  background-color: var(--btn-defense-down);
+}
+
+/* 工具：紫眼（牌型表 / 参考面板） */
+button.arcane {
+  border-image-source: url('/king/ui/btn_tarot_1.png');
+  background-color: var(--btn-arcane);
+}
+button.arcane:hover:not(:disabled) {
+  border-image-source: url('/king/ui/btn_tarot_2.png');
+}
+button.arcane:active:not(:disabled) {
+  border-image-source: url('/king/ui/btn_tarot_3.png');
+  background-color: var(--btn-arcane-down);
+}
+
+/* 中性：灰紫（退出 / 返回 / 复制）—— 与默认一致，保留类名便于语义标注 */
+button.ghost {
+  border-image-source: url('/king/ui/btn_back_1.png');
+  background-color: var(--btn-stone);
+}
+
+/* 大号：整帧 2 倍缩放（整数倍，点阵不糊） */
+button.dock-btn {
+  border-width: 16px 24px;
+  border-image-width: 16px 24px;
+  min-height: 58px;
+  padding: 0 10px;
+}
+
+/* 带素材原图标的按钮 */
+button.iconed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+button.iconed::before {
+  content: '';
+  flex: none;
+  width: 26px;
+  height: 26px;
+  background: var(--ico) center / auto no-repeat; /* auto = 原生尺寸，点阵不糊 */
+  image-rendering: pixelated;
+}
+button.iconed.atk { --ico: url('/king/ui/icon_attack.png'); }
+button.iconed.def { --ico: url('/king/ui/icon_defense.png'); }
+button.iconed.skp { --ico: url('/king/ui/icon_skip.png'); }
+button.iconed.eye { --ico: url('/king/ui/icon_tarot.png'); }
+button.iconed.bak { --ico: url('/king/ui/icon_back.png'); }
+button.iconed:disabled::before { filter: grayscale(1) brightness(0.6); }
+
+/* ============ 表单控件 ============ */
 
 input[type='text'],
 input[type='number'] {
-  font-family: var(--font-pixel);
-  font-size: 16px;
-  color: var(--card-face);
-  background: var(--night);
-  border: 2px solid var(--wood);
-  padding: 8px 10px;
+  font-family: var(--font-display);
+  font-size: var(--fs);
+  color: var(--text);
+  background: #000000aa;
+  border: 3px solid var(--stone);
+  padding: 6px 10px;
   outline: none;
-  letter-spacing: 2px;
 }
-
 input[type='text']:focus,
 input[type='number']:focus {
   border-color: var(--gold);
 }
 
+select {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: #000000aa;
+  border: 2px solid var(--stone);
+  padding: 3px 6px;
+}
+
 input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
-  width: 140px;
-  height: 12px;
-  background: var(--night);
-  border: 2px solid var(--wood);
+  width: 190px;
+  height: 16px;
+  background: #000000aa;
+  border: 3px solid var(--stone);
   cursor: pointer;
 }
-
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px;
-  height: 24px;
+  width: 18px;
+  height: 30px;
+  margin-top: -3px;
   background: var(--gold);
-  border: 2px solid var(--card-edge);
-  box-shadow: inset 0 -3px 0 #00000040;
+  border: 3px solid var(--edge);
+  box-shadow: inset 0 -6px 0 #00000055, inset 0 4px 0 #ffffff55;
+}
+input[type='range']::-moz-range-thumb {
+  width: 18px;
+  height: 30px;
+  border-radius: 0;
+  background: var(--gold);
+  border: 3px solid var(--edge);
 }
 
-/* ---- 像素圆角工具（两级阶梯） ---- */
+/* ============ 通用面板：素材风格的硬边像素框 ============ */
+
 .pixel-panel {
-  background: var(--night-2);
-  border: 2px solid var(--wood-dark);
-  clip-path: polygon(
-    0 6px, 3px 6px, 3px 3px, 6px 3px, 6px 0,
-    calc(100% - 6px) 0, calc(100% - 6px) 3px, calc(100% - 3px) 3px, calc(100% - 3px) 6px, 100% 6px,
-    100% calc(100% - 6px), calc(100% - 3px) calc(100% - 6px), calc(100% - 3px) calc(100% - 3px), calc(100% - 6px) calc(100% - 3px), calc(100% - 6px) 100%,
-    6px 100%, 6px calc(100% - 3px), 3px calc(100% - 3px), 3px calc(100% - 6px), 0 calc(100% - 6px)
-  );
-  padding: 8px;
-}
-
-/* ---- Toast ---- */
-#toast {
-  position: fixed;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 200;
-  display: none;
-  background: var(--danger);
-  border: 2px solid var(--card-edge);
-  padding: 8px 16px;
-  font-size: 13px;
-  box-shadow: 0 4px 0 #00000066;
-}
-#toast.ok { background: var(--felt); }
-#toast.show { display: block; }
-
-/* ---- 牌型表抽屉 ---- */
-#drawer {
-  position: fixed;
-  top: 0;
-  right: -320px;
-  width: 300px;
-  max-height: 100%;
-  overflow-y: auto;
-  transition: right 0.25s steps(8);
-  z-index: 150;
-  background: var(--night-2);
-  border-left: 3px solid var(--wood);
+  background: var(--panel);
+  border: 3px solid var(--panel-edge);
+  box-shadow:
+    inset 0 0 0 2px #ffffff14,
+    0 6px 0 #000000aa;
   padding: 12px;
 }
-#drawer.open { right: 0; }
-#drawer h3 { color: var(--gold); font-size: 14px; margin: 8px 0; }
-#drawer table { width: 100%; border-collapse: collapse; font-size: 12px; }
-#drawer td { padding: 3px 4px; border-bottom: 1px solid #ffffff10; }
-#drawer td.rank { color: var(--dim); width: 28px; }
-#drawer td.alias { color: var(--gold); }
-#drawer tr.big td { color: var(--gold); }
 
-/* ---- 覆盖层（摊牌横幅 / 终局） ---- */
-#overlay {
+/* 小号密集文字容器 */
+.dense {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+}
+
+/* 行内灰提示（操作栏 / 押注坞 / 手牌区共用） */
+.hint {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* 教学静默期的「……」占位 */
+.tut-wait {
+  font-size: var(--fs);
+  color: var(--text-mute);
+  letter-spacing: 4px;
+}
+
+/* ---- Toast：落在顶栏中段的空白区，不压任何内容 ---- */
+#toast {
   position: fixed;
-  inset: 0;
-  z-index: 120;
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
   display: none;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 16px;
-  background: #000000a0;
+  max-width: 46vw;
+  border: 3px solid var(--edge);
+  border-image-slice: var(--btn-slice);
+  border-image-repeat: stretch;
+  border-image-source: url('/king/ui/btn_attack_1.png');
+  border-width: 8px 12px;
+  padding: 4px 10px;
+  font-size: var(--fs);
+  color: #fff;
+  text-shadow: 1px 1px 0 var(--edge);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  image-rendering: pixelated;
 }
-#overlay.show { display: flex; }
-#overlay .banner {
-  font-size: 36px;
+#toast.ok {
+  border-image-source: url('/king/ui/btn_defense_1.png');
+}
+#toast.show {
+  display: block;
+}
+
+/* ---- 场景通用：标题 / 副标题 ---- */
+.title {
+  font-size: var(--fs-lg);
   color: var(--gold);
-  text-shadow: 3px 3px 0 var(--card-edge);
-  background: var(--night-2);
-  border: 3px solid var(--gold);
-  padding: 16px 28px;
+  letter-spacing: 6px;
+  text-shadow: 3px 3px 0 var(--edge);
 }
-#overlay .sub { font-size: 16px; }
-#overlay .score { font-size: 14px; line-height: 2; text-align: center; }
-#overlay .score b { color: var(--gold); }
+.subtitle {
+  font-size: var(--fs);
+  color: var(--text-dim);
+}
+.loading {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-mute);
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0s !important; animation-duration: 0s !important; }
 }
-
-/* ---- 大厅自定义参数 ---- */
-#cfg {
-  width: 100%;
-  padding: 8px 10px;
-  border: 2px solid var(--wood-dark);
-}
-#cfg summary { margin-bottom: 6px; }
-#cfg .cfg-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 0;
-  font-size: 13px;
-}
-#cfg select {
-  font-family: var(--font-pixel);
-  font-size: 13px;
-  color: var(--card-face);
-  background: var(--night);
-  border: 2px solid var(--wood);
-  padding: 3px 6px;
-}
-#cfg .cfg-note { font-size: 11px; color: var(--dim); margin-top: 6px; }

@@ -1,11 +1,11 @@
 import type { Card, PlayerView, PlaySegment, PublicPlayer, ShowdownEntry } from '../../../shared/src/index';
-import { bestHandCards, cardLabel } from '../../../shared/src/index';
+import { battlefieldJunk, bestHandCards, cardLabel } from '../../../shared/src/index';
 import { createCard } from '../components/card';
 import { renderHandTypes, toggleDrawer, handLabel } from '../components/drawer';
 import { gameAction, rematch } from '../net/socket';
 import { getState, patchUI, toggleSelect } from '../store';
-import { setFxHooks, isBusy } from '../anim';
-import { renderTutorial, tutorialActive } from '../components/tutorial';
+import { setFxHooks, isBusy, holdingForSettlement, settlementView, noteSettlementView } from '../anim';
+import { renderTutorial, tutorialActive, refreshTutorialGate } from '../components/tutorial';
 import { avatarSVG } from '../components/pixelAvatar';
 import { sfx, isMuted, toggleMute } from '../components/sfx';
 
@@ -17,6 +17,7 @@ import { sfx, isMuted, toggleMute } from '../components/sfx';
  */
 
 let els: {
+  table: HTMLElement;
   header: HTMLElement;
   opponents: HTMLElement;
   potNum: HTMLElement;
@@ -32,6 +33,11 @@ let els: {
   log: HTMLElement;
   overlay: HTMLElement;
   drawer: HTMLElement;
+  stage: HTMLElement;
+  stageName: HTMLElement;
+  stageCards: HTMLElement;
+  stageLabel: HTMLElement;
+  phaseBlock: HTMLElement;
 } | null = null;
 
 let countdownRaf = 0;
@@ -46,30 +52,53 @@ export function mountTable(root: HTMLElement) {
         <span class="room-code">${getState().view?.code ?? ''}</span>
         <span class="round-info" id="round-info"></span>
         <span class="spacer"></span>
-        <button id="btn-mute" class="ghost">🔊</button>
-        <button id="btn-types" class="ghost">牌型表</button>
-        <button id="btn-exit" class="ghost">退出</button>
+        <button id="btn-mute" class="ghost" title="音效开关">🔊</button>
+        <button id="btn-types" class="arcane iconed eye">牌型表</button>
+        <button id="btn-exit" class="ghost iconed bak">退出</button>
       </div>
-      <div id="opponents"></div>
-      <div id="tutorial-slot"></div>
-      <div id="center-row">
-        <div id="deck-pile" title="牌堆">
-          <div class="pile-card"></div>
-          <div class="pile-card"></div>
-          <span>牌堆</span>
-        </div>
-        <div id="pot-block">
-          <div class="pot-chips" id="pot-chips"></div>
-          <div>
-            <div class="pot-num" id="pot-num">0</div>
-            <div class="pot-label">奖池</div>
+      <div id="stage">
+        <div id="side-rail">
+          <div id="tutorial-slot"></div>
+          <div id="log">
+            <div id="log-head">
+              <span class="log-av">${avatarSVG('shirley', 'neutral', 1)}</span>
+              <span>教官播报</span>
+            </div>
+            <div id="log-lines"></div>
           </div>
         </div>
-        <div id="phase-block">
-          <div id="phase-tip"></div>
-          <div id="max-bet"></div>
-          <div id="countdown"></div>
+        <div id="game-col">
+          <div id="opponents"></div>
+          <div id="center-row">
+            <div id="deck-pile" title="牌堆">
+              <div class="pile-stack">
+                <div class="pile-card"></div>
+                <div class="pile-card"></div>
+              </div>
+              <span class="pile-label">牌堆</span>
+            </div>
+            <div id="pot-block">
+              <div class="pot-chips" id="pot-chips"></div>
+              <div>
+                <div class="pot-num" id="pot-num">0</div>
+                <div class="pot-label">奖池</div>
+              </div>
+            </div>
+            <div id="phase-block">
+              <div id="phase-tip"></div>
+              <div id="max-bet"></div>
+              <div id="countdown"></div>
+            </div>
+            <!-- 摊牌展示台：逐个玩家把牌飞到这里亮牌面，判定完再飞回去。
+                 卡槽是提前占好的，所以后落的牌不会把先落的挤走。 -->
+            <div id="showdown-stage" hidden>
+              <div class="stage-name"></div>
+              <div class="stage-cards"></div>
+              <div class="stage-label"></div>
+            </div>
+          </div>
         </div>
+        <div id="drawer"><div class="drawer-inner"></div></div>
       </div>
       <div id="you-zone">
         <div id="you-played"></div>
@@ -78,18 +107,11 @@ export function mountTable(root: HTMLElement) {
         <div id="hand"></div>
       </div>
       <div id="action-bar"></div>
-      <div id="log">
-        <div id="log-head">
-          <span class="log-av">${avatarSVG('shirley', 'neutral', 1.2)}</span>
-          <span>教官播报</span>
-        </div>
-        <div id="log-lines"></div>
-      </div>
       <div id="overlay"></div>
-      <div id="drawer"></div>
     </div>
   `;
   els = {
+    table: root.querySelector('#table')!,
     header: root.querySelector('#table-header')!,
     opponents: root.querySelector('#opponents')!,
     potNum: root.querySelector('#pot-num')!,
@@ -104,7 +126,12 @@ export function mountTable(root: HTMLElement) {
     actionBar: root.querySelector('#action-bar')!,
     log: root.querySelector('#log')!,
     overlay: root.querySelector('#overlay')!,
-    drawer: root.querySelector('#drawer')!,
+    drawer: root.querySelector('#drawer .drawer-inner') as HTMLElement,
+    stage: root.querySelector('#showdown-stage')!,
+    stageName: root.querySelector('#showdown-stage .stage-name')!,
+    stageCards: root.querySelector('#showdown-stage .stage-cards')!,
+    stageLabel: root.querySelector('#showdown-stage .stage-label')!,
+    phaseBlock: root.querySelector('#phase-block')!,
   };
   renderHandTypes(els.drawer);
   root.querySelector('#btn-types')!.addEventListener('click', () => {
@@ -137,6 +164,12 @@ export function mountTable(root: HTMLElement) {
     discardEl: () => document.getElementById('deck-pile') as HTMLElement | null,
     report: (line: string) => reportLine(line),
     showdownPrepare: (entries) => prepareShowdown(entries),
+    stageOpen: (name, total) => stageOpen(name, total),
+    stageSlotRect: (i) => stageSlotRect(i),
+    stageFill: (i, card) => stageFill(i, card),
+    stageClearSlot: (i) => stageClearSlot(i),
+    stageLabel: (text) => { if (els) els.stageLabel.textContent = text; },
+    stageClose: () => stageClose(),
     verdict: (html) => verdictShow(html),
     banner,
     tweenPot: () => tweenNumber(els!.potNum, getState().view?.pot ?? 0),
@@ -146,35 +179,53 @@ export function mountTable(root: HTMLElement) {
 // ============ 总渲染入口 ============
 
 export function render() {
-  const v = getState().view;
-  if (!v || !els) return;
-  renderHeader(v);
-  renderOpponents(v);
-  renderCenter(v);
-  renderOwnStatus(v);
-  renderActionBar(v);
-  renderBetDock(v);
-  renderOverlay(v);
-  if (!isBusy()) renderCards(false); // 动画进行中不踩卡牌区
-  renderCountdown(v);
-  if (tutorialActive()) renderTutorial(v, getState().ui.selected);
+  const live = getState().view;
+  if (!live || !els) return;
+  noteSettlementView(live); // 快照一进结算就接管，不能等 showdown 事件
+  // 演出期间一律用冻结的那份快照渲染：实时快照可能已经跑到下一回合了
+  const v = settlementView() ?? live;
+  if (!holdingForSettlement()) {
+    renderHeader(v);
+    // 动画进行中、或快照领先于事件时，出牌区都交给动画自己按节奏重绘
+    renderOpponents(v, !isBusy());
+    renderCenter(v);
+    renderOwnStatus(v);
+    renderActionBar(v);
+    renderBetDock(v);
+    renderOverlay(v);
+    if (!isBusy()) renderCards(false); // 动画进行中不踩卡牌区
+    renderCountdown(v);
+  }
+  // 教学卡讲的是"现在轮到你说什么"，演出期间也要跟着走，不能被冻结
+  if (tutorialActive()) renderTutorial(live, getState().ui.selected);
 }
 
 export function renderCards(animateTops: boolean) {
-  const v = getState().view;
-  if (!v || !els) return;
+  const live = getState().view;
+  if (!live || !els) return;
+  noteSettlementView(live); // drain 每处理完一个事件就调这里，是"抢跑"最容易发生的入口
+  const v = settlementView() ?? live;
   animateTopsFlag = animateTops;
-  renderOpponents(v);
+  renderOpponents(v, true);
   renderYouPlayed(v);
   renderHand(v);
+  refreshTutorialGate(); // 重建手牌/按钮会冲掉门控类，这里补回来
 }
 
 // ============ 顶部 ============
 
 function renderHeader(v: PlayerView) {
   const el = els!.header.querySelector('#round-info')!;
-  const phase = v.roundPhase === null ? '' : `第 ${v.roundNo} 回合 · ${phaseLabel(v)}`;
-  if (el.textContent !== phase) el.textContent = phase;
+  if (v.roundPhase === null) {
+    if (el.textContent !== '') el.textContent = '';
+    return;
+  }
+  const cap = v.settings.maxRounds > 0 ? ` / ${v.settings.maxRounds}` : '';
+  const ramp = v.settings.anteRamp > 0 ? ` · 每 ${v.settings.anteRamp} 回合 +1` : '';
+  // 底注会随递增变大，直接把本回合的实际值摆出来，玩家才看得懂奖池为什么变大
+  // v.ante 来自服务端；旧版本服务端没有这个字段，回落到设置里的基础底注
+  const info = `第 ${v.roundNo}${cap} 回合 · ${phaseLabel(v)} · 底注 ${v.ante ?? v.settings.ante}${ramp}`;
+  if (el.textContent !== info) el.textContent = info;
 }
 
 function phaseLabel(v: PlayerView): string {
@@ -193,7 +244,15 @@ function nameOf(v: PlayerView, seat: number): string {
 
 // ============ 对手卡片 ============
 
-function renderOpponents(v: PlayerView) {
+/**
+ * 对手卡片区。
+ *
+ * `withSegs=false` 时只刷新名字/筹码/状态这些 HUD 部分，**不碰出牌区**。
+ * 出牌区（.opp-segs）属于"卡牌画面"，播放动画期间必须由动画按自己的节奏重绘——
+ * 否则任何一次快照渲染都会把对手刚出的牌先画出来，动画再把它藏起来重飞一遍，
+ * 玩家看到的就是"先出现 → 突然消失 → 再一张张打出"。
+ */
+function renderOpponents(v: PlayerView, withSegs = true) {
   const wrap = els!.opponents;
   const you = v.you.seat;
 
@@ -214,7 +273,7 @@ function renderOpponents(v: PlayerView) {
     if (head.dataset.key !== headKey) {
       head.dataset.key = headKey;
       head.innerHTML = `
-        <span class="opp-name">${avatarSVG(p.avatar, 'neutral', 1.5)}${p.name}${p.isHost ? '<span class="host-mark">👑</span>' : ''}
+        <span class="opp-name">${avatarSVG(p.avatar, 'neutral', 1)}${p.name}${p.isHost ? '<span class="host-mark">👑</span>' : ''}
           ${p.status === 'defended' ? '<span class="badge defense">防守</span>' : ''}
           ${p.agreeEnd ? '<span class="badge agree">同意</span>' : ''}
           ${p.away ? '<span class="badge away">托管</span>' : ''}
@@ -248,7 +307,7 @@ function renderOpponents(v: PlayerView) {
       `;
     }
 
-    renderSegs(el.querySelector('.opp-segs') as HTMLElement, p, v, false);
+    if (withSegs) renderSegs(el.querySelector('.opp-segs') as HTMLElement, p, v, false);
   }
 
   for (const el of [...wrap.querySelectorAll('.opp-card')]) {
@@ -267,27 +326,66 @@ function oppClass(p: PublicPlayer, v: PlayerView): string {
   return cls.join(' ');
 }
 
-/** 一个"出牌段"簇：显示该段全部实体牌（亮牌 + 牌背），与手牌同尺寸 */
-function segmentCluster(seg: { count: number; top: Card | null }, own = false): HTMLElement {
+/**
+ * 出战区的一张牌。两个视觉维度分开表达：
+ *  - `revealed`：这张是**摊在桌上所有人都能看到**的（每段的最大牌）；
+ *    否则是"只有自己看得到"的牌 → 压暗
+ *  - `used`：这张参与了当前牌型 → 镶银边
+ */
+function fieldCard(card: Card, opts: { revealed: boolean; used: boolean; mini?: boolean }): HTMLElement {
+  const node = createCard(card, { up: true, mini: opts.mini ?? true });
+  node.classList.add(opts.revealed ? 'revealed' : 'private');
+  if (opts.used) node.classList.add('used');
+  return node;
+}
+
+/** 摊牌展示：把组成牌型的牌归拢到前面，方便一眼看出是哪几张凑成的 */
+function groupByUsed(cards: Card[], usedIds: string[]): Card[] {
+  const used = new Set(usedIds);
+  return [...cards].sort((a, b) => Number(used.has(b.id)) - Number(used.has(a.id)));
+}
+
+/** 一个"出牌段"簇：显示该段全部实体牌（亮牌 + 牌背），横向半叠避免纵向拉高 */
+/**
+ * 一个座位本回合的出牌，全部**压成一行**横向铺开。
+ *
+ * 原来每一段各占一个盒子，装不下就换行 → 竖向堆叠，直接把对手卡片撑爆
+ * （卡片高度是内容决定的，超出对手区就被裁掉）。现在不管分几段出牌，
+ * 都按顺序铺在同一行里：亮出的最大牌正面朝上，其余暗牌，段与段之间靠
+ * 亮牌的位置自然分界。手牌最多 6 张，所以一行必然放得下。
+ */
+function playedRow(segs: { count: number; top: Card | null }[], own: boolean): HTMLElement {
   const cluster = document.createElement('div');
   cluster.className = 'seg';
-  for (let i = 0; i < seg.count; i++) {
-    const isTopCard = !!seg.top && i === 0;
-    const node = createCard(isTopCard ? seg.top : null, { up: (isTopCard && !animateTopsFlag) || own });
-    cluster.appendChild(node);
-    if (isTopCard && animateTopsFlag) {
-      requestAnimationFrame(() => requestAnimationFrame(() => node.classList.add('up')));
+  const row = document.createElement('div');
+  row.className = 'seg-cards';
+
+  for (const seg of segs) {
+    for (let i = 0; i < seg.count; i++) {
+      const isTopCard = !!seg.top && i === 0;
+      const node = createCard(isTopCard ? seg.top : null, { up: (isTopCard && !animateTopsFlag) || own, mini: !own });
+      node.classList.add(isTopCard ? 'revealed' : 'private');
+      row.appendChild(node);
+      if (isTopCard && animateTopsFlag) {
+        requestAnimationFrame(() => requestAnimationFrame(() => node.classList.add('up')));
+      }
     }
   }
+  cluster.appendChild(row);
+
+  const total = segs.reduce((n, s0) => n + s0.count, 0);
+  const revealed = segs.filter((s0) => s0.top).map((s0) => cardLabel(s0.top!));
   const label = document.createElement('span');
   label.className = 'seg-count';
-  label.textContent = seg.top ? `亮牌 ×${seg.count}` : `暗牌 ×${seg.count}`;
+  label.textContent = revealed.length ? `亮 ${revealed.join(' / ')} · 共 ${total} 张` : `暗牌 ${total} 张`;
   cluster.appendChild(label);
   return cluster;
 }
 
 function renderSegs(el: HTMLElement, p: PublicPlayer, v: PlayerView, own: boolean) {
-  const faceUpAll = v.result && !v.result.voidRound;
+  // 演出期间**不**用 result 的全员明牌：亮牌由动画按座位逐个演，
+  // 状态渲染抢先把 result 画出来就是"所有人的牌突然全亮挤在一堆"。
+  const faceUpAll = !holdingForSettlement() && v.result && !v.result.voidRound;
   const entry = faceUpAll ? v.result!.entries.find((e) => e.seat === p.seat) : null;
   const segsKey = entry
     ? 'all:' + entry.cards.map((c) => c.id).join(',')
@@ -299,11 +397,12 @@ function renderSegs(el: HTMLElement, p: PublicPlayer, v: PlayerView, own: boolea
   if (entry) {
     const cluster = document.createElement('div');
     cluster.className = 'seg';
-    for (const c of entry.cards) {
-      const node = createCard(c, { up: true }); // 摊牌全明牌、全尺寸
-      if (entry.usedIds.includes(c.id)) node.classList.add('gold');
-      cluster.appendChild(node);
+    const row = document.createElement('div');
+    row.className = 'seg-cards';
+    for (const c of groupByUsed(entry.cards, entry.usedIds)) {
+      row.appendChild(fieldCard(c, { revealed: true, used: entry.usedIds.includes(c.id) }));
     }
+    cluster.appendChild(row);
     const label = document.createElement('span');
     label.className = 'seg-count gold-text';
     label.textContent = `${entry.handAlias}·${entry.handName}`;
@@ -320,7 +419,8 @@ function renderSegs(el: HTMLElement, p: PublicPlayer, v: PlayerView, own: boolea
     el.appendChild(tip);
     return;
   }
-  for (const seg of p.playSegments) el.appendChild(segmentCluster(seg, own));
+  // 一行铺开：分几段出牌都不换行，避免把对手卡片撑高到裁切
+  el.appendChild(playedRow(p.playSegments, own));
 }
 
 // ============ 中央奖池 ============
@@ -383,7 +483,7 @@ function ownSegmentCards(v: PlayerView): { cards: Card[]; seg: PlaySegment }[] {
 function renderYouPlayed(v: PlayerView) {
   const el = els!.youPlayed;
   const groups = ownSegmentCards(v);
-  const faceUpAll = v.result && !v.result.voidRound;
+  const faceUpAll = !holdingForSettlement() && v.result && !v.result.voidRound;
   const key = JSON.stringify({
     segs: v.you.playSegments.map((s0) => `${s0.count}:${s0.top?.id ?? '-'}`),
     bf: v.you.battlefield.map((c) => c.id),
@@ -397,11 +497,12 @@ function renderYouPlayed(v: PlayerView) {
   if (entry) {
     const cluster = document.createElement('div');
     cluster.className = 'seg';
-    for (const c of entry.cards) {
-      const node = createCard(c, { up: true });
-      if (entry.usedIds.includes(c.id)) node.classList.add('gold');
-      cluster.appendChild(node);
+    const row = document.createElement('div');
+    row.className = 'seg-cards';
+    for (const c of groupByUsed(entry.cards, entry.usedIds)) {
+      row.appendChild(fieldCard(c, { revealed: true, used: entry.usedIds.includes(c.id) }));
     }
+    cluster.appendChild(row);
     const label = document.createElement('span');
     label.className = 'seg-count gold-text';
     label.textContent = `你 · ${entry.handAlias}·${entry.handName}`;
@@ -414,16 +515,23 @@ function renderYouPlayed(v: PlayerView) {
   for (const { cards, seg } of groups) {
     const cluster = document.createElement('div');
     cluster.className = 'seg';
+    const row = document.createElement('div');
+    row.className = 'seg-cards';
     for (const c of cards) {
-      // 自己打出的牌自己全程可见：全部明牌
-      const node = createCard(c, { up: true });
-      if (seg.top?.id === c.id && animateTopsFlag && cards.length > 1) {
+      // 自己打出的牌自己全程可见，但只有"亮出的最大牌"是全场公开的：
+      // 公开的做高亮，其余压暗——这样一眼就知道自己有几张是明着的
+      const revealed = seg.top?.id === c.id;
+      const node = fieldCard(c, {
+        revealed,
+        used: !!mark?.hand.usedIds.includes(c.id) && v.you.battlefield.length > 1,
+      });
+      if (revealed && animateTopsFlag && cards.length > 1) {
         // 多张段的最大牌播放一次强调动画
         node.animate([{ filter: 'brightness(1.9)' }, { filter: 'brightness(1)' }], { duration: 500 });
       }
-      if (mark?.hand.usedIds.includes(c.id) && v.you.battlefield.length > 1) node.classList.add('mark');
-      cluster.appendChild(node);
+      row.appendChild(node);
     }
+    cluster.appendChild(row);
     const label = document.createElement('span');
     label.className = 'seg-count';
     label.textContent = `你 · ${seg.top ? `亮 ${seg.count} 张` : `暗 ${seg.count} 张`}`;
@@ -436,24 +544,24 @@ function renderOwnStatus(v: PlayerView) {
   const el = els!.ownStatus;
   const you = v.you;
   const bf = bestHandCards(you.battlefield);
-  const bfText = bf ? `出战区 <b>${handLabel(bf.hand.typeRank)}</b> · 杂 ${bf.hand.junk}` : '出战区：空';
+  // 杂牌数 = 出战区里没用上的牌（掺水规则），不能用 bestHand 的 junk（那是按凑牌型的子集算的，恒为 0）
+  const bfText = bf ? `出战区 <b>${handLabel(bf.hand.typeRank)}</b> · 杂 ${battlefieldJunk(you.battlefield)}` : '出战区：空';
   const key = `${you.avatar}|${you.chips}|${you.betTotal}|${you.battlefield.length}|${you.escrow}|${bf?.hand.typeRank ?? 0}|${v.pot}|${v.maxBet}`;
   if (el.dataset.key === key) return;
   el.dataset.key = key;
   el.innerHTML = `
-    <span class="own-av">${avatarSVG(you.avatar, 'neutral', 1.5)} <b>${you.name}</b></span><span class="sep">│</span>
-    <span>💰 <b>${you.chips}</b></span><span class="sep">│</span>
-    <span>已押 <b>${you.betTotal}</b>${you.escrow > 0 ? ` · 托管 <b>${you.escrow}</b>` : ''}</span><span class="sep">│</span>
-    <span>${bfText}</span><span class="sep">│</span>
-    <span>押注上限 = 牌数 <b>${you.battlefield.length}</b> × 倍数 <b>${v.settings.chipMultiplier}</b></span><span class="sep">│</span>
-    <span>🏺 <b>${v.pot}</b> · 最大押注 <b>${v.maxBet}</b></span>
+    <span class="own-av">${avatarSVG(you.avatar, 'neutral', 1)} <b>${you.name}</b></span>
+    <span>💰 <b>${you.chips}</b></span>
+    <span>已押 <b>${you.betTotal}</b>${you.escrow > 0 ? ` · 托管 <b>${you.escrow}</b>` : ''}</span>
+    <span>${bfText} · 上限 <b>${you.battlefield.length * v.settings.chipMultiplier}</b></span>
+    <span>🏺 <b>${v.pot}</b> · 场上最大注 <b>${v.maxBet}</b></span>
   `;
 }
 
 function renderHand(v: PlayerView) {
   const hand = els!.hand;
   const ids = v.you.hand.map((c) => c.id).join(',');
-  // 手牌集合变化（发牌/出牌）才重建；选择变化只改样式 → 抽出动画有过渡
+  // 手牌集合变化（发牌/出牌）才重建；选择变化只改样式 → 抬起动画有过渡
   if (hand.dataset.ids !== ids) {
     hand.dataset.ids = ids;
     hand.innerHTML = '';
@@ -463,26 +571,27 @@ function renderHand(v: PlayerView) {
       const rb = b.rank === 1 ? 14 : b.rank;
       return b.suit - a.suit || rb - ra;
     });
-    const n = sorted.length;
-    const spread = n > 1 ? Math.min(7, 42 / (n - 1)) : 0;
-    sorted.forEach((c, i) => {
+    // 本轮新补的牌：金框 + 「新」角标；发牌落位那次重建加脉冲动画
+    const freshSet = new Set(getState().ui.freshIds);
+    for (const c of sorted) {
       const node = createCard(c, { up: true });
       node.dataset.id = c.id;
-      node.dataset.angle = String((i - (n - 1) / 2) * spread);
-      node.style.transformOrigin = '50% 130%';
-      node.style.marginLeft = i === 0 ? '0' : '-20px';
+      if (freshSet.has(c.id)) {
+        node.classList.add('fresh');
+        if (animateTopsFlag) node.classList.add('fresh-anim');
+      }
       hand.appendChild(node);
-    });
-    if (n === 0) hand.innerHTML = '<span style="color:var(--dim);font-size:12px">手牌已出完</span>';
+    }
+    if (sorted.length === 0) hand.innerHTML = '<span class="hint">手牌已出完</span>';
   }
-  // 选中态：微微抽出（外层上移，CSS transition 出动画）
+  // 选中态：整张上抬（不旋转，点阵保持锐利）
   const selected = new Set(getState().ui.selected);
   for (const node of [...hand.children] as HTMLElement[]) {
     if (!node.dataset.id) continue;
     const isSel = selected.has(node.dataset.id);
-    const angle = Number(node.dataset.angle ?? 0);
     node.classList.toggle('sel', isSel);
-    node.style.transform = `rotate(${angle}deg) translateY(${isSel ? -18 : 0}px)`;
+    node.style.transform = isSel ? 'translateY(-16px)' : '';
+    node.style.zIndex = isSel ? '5' : '';
   }
 }
 
@@ -526,6 +635,8 @@ function renderActionBar(v: PlayerView) {
     hint.textContent = `防守：牌数 ≤ 托管筹码（筹码 ${you.chips}），选中手牌后点【宣布防守】`;
     bar.appendChild(hint);
     const pass = document.createElement('button');
+    pass.className = 'steel iconed def';
+    pass.dataset.act = 'pass_defense';
     pass.textContent = '不防守';
     pass.addEventListener('click', () => {
       sfx.click();
@@ -534,7 +645,8 @@ function renderActionBar(v: PlayerView) {
     bar.appendChild(pass);
     if (la.canForceCloseDefense) {
       const force = document.createElement('button');
-      force.className = 'ghost';
+      force.className = 'ghost iconed skp';
+      force.dataset.act = 'force_close_defense';
       force.textContent = '直接开始（跳过等待）';
       force.addEventListener('click', () => {
         sfx.click();
@@ -563,8 +675,9 @@ function renderActionBar(v: PlayerView) {
 
   if (la.canAgree) {
     const btn = document.createElement('button');
+    btn.dataset.act = 'agree_end';
     btn.textContent = you.agreeEnd ? '取消同意' : '同意结束';
-    btn.className = you.agreeEnd ? '' : 'ghost';
+    btn.className = you.agreeEnd ? 'iconed def' : 'ghost iconed def';
     btn.addEventListener('click', () => {
       sfx.click();
       void gameAction({ t: 'agree_end', agree: !you.agreeEnd });
@@ -593,9 +706,10 @@ function renderBetDock(v: PlayerView) {
 
   const show =
     v.phase === 'playing' &&
-    (v.roundPhase === 'opening' || v.roundPhase === 'rotation') &&
-    la.isYourTurn &&
-    you.status === 'active';
+    you.status === 'active' &&
+    (v.roundPhase === 'defense_window'
+      ? la.canDeclareDefense
+      : (v.roundPhase === 'opening' || v.roundPhase === 'rotation') && la.isYourTurn);
   if (!show) {
     dock.style.display = 'none';
     return;
@@ -609,28 +723,29 @@ function renderBetDock(v: PlayerView) {
       const top = got.used[got.used.length - 1];
       const d = document.createElement('span');
       d.className = 'preview';
-      d.textContent = `已选 ${handLabel(got.hand.typeRank)} · 最大 ${top ? cardLabel(top) : '?'} · 用 ${got.used.length} · 杂 ${got.hand.junk}`;
+      d.textContent = `已选 ${handLabel(got.hand.typeRank)} · 最大 ${top ? cardLabel(top) : '?'} · 用 ${got.used.length} · 杂 ${battlefieldJunk(selCards)}`;
       dock.appendChild(d);
     }
   };
 
-  const mkSlider = (id: string, label: string, min: number, max: number, val: number) => {
+  const mkSlider = (id: string, label: string, min: number, max: number, val: number, field: 'bet' | 'escrow' = 'bet') => {
     const group = document.createElement('div');
     group.className = 'slider-group';
     group.innerHTML = `<span class="hint">${label}</span><input id="${id}" type="range" min="${min}" max="${max}" value="${val}" /><span class="val">${val}</span>`;
     const slider = group.querySelector<HTMLInputElement>(`#${id}`)!;
     slider.addEventListener('input', () => {
       group.querySelector('.val')!.textContent = slider.value;
-      patchUI({ bet: Number(slider.value) });
+      patchUI({ [field]: Number(slider.value) });
       dock.dataset.key = ''; // 数值变化即时反映在按钮文字上
       renderBetDock(v);
     });
     return group;
   };
 
-  const bigBtn = (label: string, cls: string, fn: () => void) => {
+  const bigBtn = (label: string, cls: string, act: string, fn: () => void) => {
     const b = document.createElement('button');
     b.className = `dock-btn ${cls}`;
+    b.dataset.act = act;
     b.textContent = label;
     b.addEventListener('click', fn);
     return b;
@@ -638,8 +753,36 @@ function renderBetDock(v: PlayerView) {
 
   const commit = (fn: () => Promise<boolean>) =>
     fn().then((ok) => {
-      if (ok) patchUI({ selected: [], bet: null });
+      if (ok) patchUI({ selected: [], bet: null, escrow: null });
     });
+
+  // 防守宣言窗口：选牌 → 托管滑块（≥ 牌数、≤ 全部筹码）→ 宣布防守
+  if (v.roundPhase === 'defense_window') {
+    const n = selected.length;
+    if (n === 0) {
+      const tip = document.createElement('span');
+      tip.className = 'hint';
+      tip.textContent = '先在下方点选手牌作为防守牌（至少 1 张）';
+      dock.appendChild(tip);
+    } else if (you.chips >= n) {
+      const min = n;
+      const max = you.chips;
+      const esc = Math.max(min, Math.min(ui.escrow ?? min, max));
+      dock.appendChild(mkSlider('escrow', `托管（${min}~${max}）`, min, max, esc, 'escrow'));
+      dock.appendChild(
+        bigBtn(`宣布防守 ${n} 张`, 'steel iconed def', 'declare_defense', () =>
+          commit(() => gameAction({ t: 'declare_defense', cardIds: [...selected], escrow: Number(dock.querySelector('.val')!.textContent!) })),
+        ),
+      );
+    } else {
+      const tip = document.createElement('span');
+      tip.className = 'hint';
+      tip.textContent = `筹码（${you.chips}）少于防守牌数（${n}），少选几张`;
+      dock.appendChild(tip);
+    }
+    addPreview();
+    return;
+  }
 
   if (la.canPlay && selected.length > 0) {
     const cap = Math.min(selected.length * mult, you.chips);
@@ -648,7 +791,7 @@ function renderBetDock(v: PlayerView) {
       const betVal = Math.max(minBet, Math.min(ui.bet ?? Math.max(minBet, 1), cap));
       dock.appendChild(mkSlider('bet', `押注（≤ ${cap}）`, minBet, cap, betVal));
       dock.appendChild(
-        bigBtn(`⚔ 出战 ${selected.length} 张`, 'primary', () =>
+        bigBtn(`出战 ${selected.length} 张`, 'primary iconed atk', 'play', () =>
           commit(() => gameAction({ t: 'play', cardIds: [...selected], bet: Number(dock.querySelector('.val')!.textContent!) })),
         ),
       );
@@ -666,7 +809,7 @@ function renderBetDock(v: PlayerView) {
       const delta = Math.max(min, Math.min(ui.bet ?? min, max));
       dock.appendChild(mkSlider('delta', `加注（${min}~${max}）`, min, max, delta));
       dock.appendChild(
-        bigBtn(`🂠 加牌 ${n} 张`, 'primary', () =>
+        bigBtn(`加牌 ${n} 张`, 'primary iconed atk', 'add_cards', () =>
           commit(() => gameAction({ t: 'add_cards', cardIds: [...selected], betDelta: Number(dock.querySelector('.val')!.textContent!) })),
         ),
       );
@@ -677,14 +820,19 @@ function renderBetDock(v: PlayerView) {
       dock.appendChild(tip);
     }
   } else if (la.canAddChips) {
+    // 下限至少 1：加注 0 没有任何效果，还会把全桌的"同意结束"清掉。
+    // 引擎已不再为这种情况提供 canAddChips，这里再兜一道，滑块不会出现 0。
     const { min, max } = la.canAddChips;
-    const delta = Math.max(min, Math.min(ui.bet ?? min, max));
-    dock.appendChild(mkSlider('chips', `加注（${min}~${max}）`, min, max, delta));
-    dock.appendChild(
-      bigBtn(`💰 加注 ${delta}`, 'primary', () =>
-        commit(() => gameAction({ t: 'add_chips', betDelta: Number(dock.querySelector('.val')!.textContent!) })),
-      ),
-    );
+    const lo = Math.max(1, min);
+    if (max >= lo) {
+      const delta = Math.max(lo, Math.min(ui.bet ?? lo, max));
+      dock.appendChild(mkSlider('chips', `加注（${lo}~${max}）`, lo, max, delta));
+      dock.appendChild(
+        bigBtn(`加注 ${delta}`, 'primary iconed atk', 'add_chips', () =>
+          commit(() => gameAction({ t: 'add_chips', betDelta: Number(dock.querySelector('.val')!.textContent!) })),
+        ),
+      );
+    }
   } else if (la.canPlay) {
     const tip = document.createElement('span');
     tip.className = 'hint';
@@ -696,7 +844,8 @@ function renderBetDock(v: PlayerView) {
 
   if (la.canFold) {
     const fold = document.createElement('button');
-    fold.className = 'dock-btn danger-btn';
+    fold.className = 'dock-btn ghost iconed bak';
+    fold.dataset.act = 'fold';
     fold.textContent = '弃牌';
     fold.addEventListener('click', () => {
       if (confirm('确定弃牌？已押筹码将进入奖池且无法收回。')) {
@@ -712,9 +861,20 @@ function renderBetDock(v: PlayerView) {
 
 // ============ 摊牌准备 / 教官裁定 ============
 
-function prepareShowdown(entries: ShowdownEntry[]): { seat: number; cards: HTMLElement[]; label: HTMLElement }[] {
+/**
+ * 摊牌一开始只把所有人的牌**背面**摆回各自区域，先不亮。
+ * 亮牌交给 anim.ts 按座位逐个翻开 + 飞到中央展示台。
+ * 统一用 mini 尺寸：中央展示台一套尺寸，飞进飞出不会忽大忽小。
+ */
+function prepareShowdown(entries: ShowdownEntry[]): {
+  seat: number;
+  nodes: HTMLElement[];
+  cards: Card[];
+  usedIds: string[];
+  label: HTMLElement;
+}[] {
   const you = getState().view!.you.seat;
-  const out: { seat: number; cards: HTMLElement[]; label: HTMLElement }[] = [];
+  const out: { seat: number; nodes: HTMLElement[]; cards: Card[]; usedIds: string[]; label: HTMLElement }[] = [];
   for (const entry of entries) {
     const own = entry.seat === you;
     const container = own ? els!.youPlayed : (document.querySelector(`.opp-card[data-seat="${entry.seat}"] .opp-segs`) as HTMLElement | null);
@@ -722,27 +882,86 @@ function prepareShowdown(entries: ShowdownEntry[]): { seat: number; cards: HTMLE
     container.innerHTML = '';
     const cluster = document.createElement('div');
     cluster.className = 'seg';
-    const cards: HTMLElement[] = [];
+    const row = document.createElement('div');
+    row.className = 'seg-cards';
+    const nodes: HTMLElement[] = [];
     for (const c of entry.cards) {
-      const node = createCard(c, { up: false, mini: !own });
-      cluster.appendChild(node);
-      cards.push(node);
+      const node = createCard(c, { up: false, mini: true });
+      row.appendChild(node);
+      nodes.push(node);
     }
+    cluster.appendChild(row);
     const label = document.createElement('span');
     label.className = 'seg-count gold-text';
     cluster.appendChild(label);
     cluster.dataset.reveal = '1';
     container.appendChild(cluster);
-    out.push({ seat: entry.seat, cards, label });
+    out.push({ seat: entry.seat, nodes, cards: entry.cards, usedIds: entry.usedIds, label });
   }
   return out;
 }
 
+// ============ 中央展示台（摊牌演出用） ============
+
+/** 开台：按张数提前占好卡槽，之后落座的牌不会把先落的挤走 */
+function stageOpen(name: string, total: number) {
+  if (!els) return;
+  const { stage, stageName, stageCards, stageLabel, phaseBlock } = els;
+  stageName.textContent = name;
+  stageLabel.textContent = '';
+  stageCards.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'stage-slot';
+    slot.dataset.slot = String(i);
+    stageCards.appendChild(slot);
+  }
+  stage.hidden = false;
+  phaseBlock.hidden = true; // 阶段提示让位给展示台
+}
+
+function stageSlotEl(i: number): HTMLElement | null {
+  return els?.stageCards.querySelector<HTMLElement>(`.stage-slot[data-slot="${i}"]`) ?? null;
+}
+
+function stageSlotRect(i: number): { left: number; top: number; width: number; height: number } | null {
+  const el = stageSlotEl(i);
+  return el ? el.getBoundingClientRect() : null;
+}
+
+function stageFill(i: number, card: Card, used = false) {
+  const slot = stageSlotEl(i);
+  if (!slot) return;
+  slot.innerHTML = '';
+  const node = createCard(card, { up: true, mini: true });
+  node.classList.add('revealed');
+  if (used) node.classList.add('used');
+  slot.appendChild(node);
+}
+
+function stageClearSlot(i: number) {
+  const slot = stageSlotEl(i);
+  if (slot) slot.innerHTML = '';
+}
+
+function stageClose() {
+  if (!els) return;
+  els.stage.hidden = true;
+  els.stageCards.innerHTML = '';
+  els.phaseBlock.hidden = false;
+}
+
+/** 教官裁定：与横幅共用同一条队列，演出结束后自己收起，不留给下一个事件去覆盖 */
 function verdictShow(html: string): Promise<void> {
-  const ov = els!.overlay;
-  ov.innerHTML = html;
-  ov.classList.add('show');
-  return new Promise((resolve) => setTimeout(() => resolve(), matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 2100));
+  bannerBusy = bannerBusy.then(async () => {
+    const ov = els!.overlay;
+    ov.innerHTML = html;
+    ov.classList.add('show');
+    await new Promise((r) => setTimeout(r, matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 2600));
+    ov.classList.remove('show');
+    ov.innerHTML = '';
+  });
+  return bannerBusy;
 }
 
 // ============ 倒计时 ============

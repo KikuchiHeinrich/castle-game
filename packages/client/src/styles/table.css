@@ -1,88 +1,183 @@
-/* ============ 桌面布局 v2：结构化三段式（对手横排 → 中央奖池 → 己方），无绝对定位 ============ */
+/* ============ 桌面布局 v3：栅格分轨，任何面板都不悬浮 ============
+   纵向：header / 舞台 / 己方区 / 操作栏
+   横向：侧轨（教学卡 或 战报）| 牌桌列 | 牌型表轨
+   三条轨道都是栅格列，开合只改列宽，所以教学卡 / 战报 / 牌型表
+   永远不会盖在牌桌上（旧版是 position:fixed 悬浮，会压住对手区）。 */
 
 #table {
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(240px, 1fr) auto auto;
+  overflow-y: auto; /* 屏幕过矮时整页可滚，绝不裁切/挤压任何区域 */
+  overflow-x: hidden;
 }
 
+/* 教学进行中：侧轨交给教学卡，避免两套解说抢同一块注意力 */
+#table.tut #log { display: none; }
+
+/* ---------- 顶栏 ---------- */
 #table-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 5px 10px;
-  font-size: 12px;
-  color: var(--dim);
-  border-bottom: 2px solid var(--wood-dark);
-  flex: none;
+  padding: 4px 12px;
+  min-height: 46px;
+  border-bottom: 3px solid var(--panel-edge);
+  background: #00000066;
 }
 
 #table-header .room-code {
   color: var(--gold);
-  font-size: 15px;
+  font-size: var(--fs);
   letter-spacing: 4px;
 }
-
-#table-header .round-info { color: var(--card-face); }
+#table-header .round-info { color: var(--text); font-size: var(--fs); }
 #table-header .spacer { flex: 1; }
-#table-header button { padding: 3px 8px; font-size: 12px; }
+#table-header button { min-height: 40px; font-size: var(--fs); padding: 0 6px; }
 
-/* ---- 第一段：对手卡片横排 ---- */
-#opponents {
-  flex: 1.2 1 0;
+/* ---------- 舞台：战报轨 | 牌桌列 | 牌型表轨 ---------- */
+#stage {
+  display: grid;
+  grid-template-columns: 480px minmax(0, 1fr) auto;
+  grid-template-areas: 'rail game drawer';
   min-height: 0;
+}
+
+/* 侧轨：教学卡与战报共用这一列，同一时刻只显示一个，天然不可能重叠 */
+#side-rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 3px solid var(--panel-edge);
+  background: #00000088;
+}
+
+#game-col {
+  grid-area: game;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------- 第一段：对手卡片（可换行、可滚动，不影响其它轨） ----------
+   min-height 是这个高度的下限：那张对手卡片实测 205px 高，
+   区域一旦被压到 200 以下就会裁掉对手的出牌段——宁可让整页滚动也不压扁。 */
+#opponents {
+  grid-area: unset;
+  flex: 1 1 auto;
+  min-height: 216px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  align-content: center;
+  align-content: safe center; /* 放不下时回退顶部对齐，避免上下两头发被裁掉 */
   gap: 12px;
   padding: 8px 10px;
   overflow-y: auto;
 }
 
 .opp-card {
-  width: 168px;
+  width: 236px;
+  flex: none;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 8px;
-  background: #00000080;
-  border: 2px solid #ffffff26;
-  transition: opacity 0.3s, border-color 0.3s;
+  gap: 3px;
+  padding: 5px;
+  background: #000000aa;
+  border: 3px solid #ffffff1f;
+  transition: border-color 0.2s;
 }
 
-.opp-card.turn { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
-.opp-card.folded { opacity: 0.4; filter: grayscale(1); }
+.opp-card.turn { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold), 0 0 14px #dd8c0088; }
+.opp-card.folded { opacity: 0.42; filter: grayscale(1); }
 .opp-card.out { opacity: 0.2; filter: grayscale(1); }
-.opp-card.defended { border-color: var(--chip-b); }
+.opp-card.defended { border-color: var(--steel-hi); }
 
-.opp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-.opp-head .opp-name { font-size: 14px; color: var(--card-face); display: flex; gap: 4px; align-items: center; }
+.opp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap; /* 徽章变多时不许换行，否则卡片高度会跳 */
+}
+.opp-head .opp-name {
+  font-size: var(--fs);
+  color: var(--text);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
 .opp-head .host-mark { color: var(--gold); }
-.opp-head .opp-chips { font-size: 12px; color: var(--gold); white-space: nowrap; }
+.opp-head .opp-chips {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--gold);
+  white-space: nowrap;
+}
 
-.opp-meta { display: flex; justify-content: space-between; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); min-height: 18px; }
-.opp-meta .opp-bet { display: flex; align-items: center; gap: 4px; color: var(--chip-w); }
+.opp-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  min-height: 18px;
+}
+.opp-meta .opp-bet { display: flex; align-items: center; gap: 4px; color: var(--text); }
 
-.seat .badge,
 .opp-card .badge {
-  font-size: 10px;
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
   padding: 0 3px;
   border: 1px solid currentColor;
 }
-.badge.defense { color: var(--chip-b); }
+.badge.defense { color: var(--steel-hi); }
 .badge.agree { color: var(--gold); }
-.badge.away { color: var(--danger); }
+.badge.away { color: var(--heart-hi); }
 
-/* 出牌段：亮牌/暗牌 + 张数标签 */
-.opp-segs {
+/* 对手手牌堆：蜘蛛纸牌式半叠牌背，代表其全部手牌 */
+.opp-hand {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
   align-items: flex-end;
-  min-height: 56px;
+  min-height: 36px;
+}
+.stack-back {
+  width: 24px;
+  height: 33px;
+  margin-left: -14px;
+  background: url('/king/cards/card_back.png') center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  filter: drop-shadow(1px 1px 0 #00000088);
+}
+.stack-back:first-child { margin-left: 0; }
+.stack-count {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  margin-left: 6px;
+  align-self: center;
+}
+
+/* 对手的出牌：本回合所有牌压成一行横向铺开。
+   不换行是关键——一旦换行就会竖向堆叠，把卡片撑高到被对手区裁掉。
+   6 张牌要挤进 236px 的卡片，所以这里的叠放比默认更紧。 */
+.opp-segs {
+  --card-mini-overlap: 18px;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center; /* 与飞牌落点（按容器中心摊开）对齐 */
+  gap: 0;
+  align-items: flex-end;
+  min-height: var(--card-mini-h);
+  /* 兜底：本回合所有牌本来就设计成放得下一行（最多 6 张）。
+     万一有意外内容把这一行撑宽，宁可裁掉也不能溢出去压住隔壁玩家的卡片。 */
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .seg {
@@ -90,389 +185,727 @@
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 3px 4px;
-  background: #00000066;
-  border: 1px solid #ffffff22;
+  /* 内边距留够：.card.used 的银边是 inset:-2px，太贴边会被裁掉 */
+  padding: 4px 7px;
+  background: #00000088;
+  border: 2px solid #ffffff1a;
+  max-width: 100%;
 }
 
-.seg .seg-count { font-size: 10px; color: var(--card-face); white-space: nowrap; }
+.seg-cards {
+  display: flex;
+  align-items: flex-end;
+  min-height: var(--card-mini-h);
+}
+.seg-cards .card { flex: none; }
+.seg-cards .card + .card { margin-left: -30px; }
+.seg-cards .card.mini { min-height: var(--card-mini-h); }
+.seg-cards .card.mini + .card.mini { margin-left: calc(var(--card-mini-overlap) * -1); }
+
+.seg .seg-count {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: nowrap;
+}
 .seg .seg-count.gold-text { color: var(--gold); }
 
-/* ---- 第二段：中央奖池 ---- */
+/* ---------- 第二段：中央牌堆 / 奖池 / 阶段 ---------- */
 #center-row {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 26px;
-  padding: 6px 12px;
-  border-top: 2px solid var(--wood-dark);
-  border-bottom: 2px solid var(--wood-dark);
-  background: linear-gradient(180deg, var(--felt-dark), #224529);
-  flex: none;
+  gap: 36px;
+  padding: 6px 14px;
+  border-top: 3px solid var(--panel-edge);
+  border-bottom: 3px solid var(--panel-edge);
+  background: linear-gradient(180deg, #2b331f, #1a2114);
 }
 
-#pot-block { display: flex; align-items: center; gap: 10px; }
-#pot-block .pot-chips { display: flex; min-height: 22px; }
-#pot-block .chip { width: 18px; height: 18px; }
-#pot-block .pot-num { font-size: 30px; color: var(--gold); text-shadow: 2px 2px 0 var(--card-edge); line-height: 1; }
-#pot-block .pot-label { font-size: 12px; color: var(--card-face); text-align: center; }
+#pot-block { display: flex; align-items: center; gap: 12px; }
+#pot-block .pot-chips { display: flex; align-items: center; min-height: 24px; }
+#pot-block .pot-num {
+  font-size: var(--fs-lg);
+  color: var(--gold);
+  text-shadow: 3px 3px 0 var(--edge);
+  line-height: 1;
+}
+#pot-block .pot-label { font-family: var(--font-pixel); font-size: var(--fs-sm); color: var(--text); text-align: center; }
 
-#phase-block { text-align: left; }
-#phase-tip { font-size: 15px; color: var(--card-face); }
-#max-bet { font-size: 12px; color: var(--dim); margin-top: 2px; }
-#countdown { font-size: 14px; color: var(--gold); margin-top: 2px; }
+#phase-block { text-align: left; max-width: 420px; }
+#phase-tip { font-size: var(--fs); color: var(--text); }
+#max-bet { font-family: var(--font-pixel); font-size: var(--fs-sm); color: var(--text-dim); margin-top: 3px; }
+#countdown { font-family: var(--font-pixel); font-size: var(--fs-sm); color: var(--gold); margin-top: 2px; }
 
-/* ---- 第三段：己方区域 ---- */
+/* 中央牌堆：pile_base 虚线底 + 牌背，兼作发牌动画的起落锚点 */
+#deck-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 36px;
+  flex: none;
+}
+#deck-pile .pile-stack {
+  position: relative;
+  width: 36px;
+  height: 48px;
+  background: url('/king/cards/pile_base.png') center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+}
+#deck-pile .pile-card {
+  position: absolute;
+  inset: 0;
+  background: url('/king/cards/card_back.png') center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  filter: drop-shadow(1px 1px 0 #00000088);
+}
+#deck-pile .pile-card + .pile-card { transform: translate(3px, -3px); }
+#deck-pile .pile-label {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* ---------- 中央展示台（摊牌演出） ----------
+   卡槽提前占位：后落座的牌不会把先落的挤走。
+   6 张小牌（49px、叠 18px）一行 204px，中央行放得下。 */
+#showdown-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+#showdown-stage[hidden] { display: none; }
+#showdown-stage .stage-name {
+  font-size: var(--fs-lg);
+  color: var(--gold);
+  white-space: nowrap;
+  line-height: 1.1;
+}
+#showdown-stage .stage-cards {
+  display: flex;
+  align-items: flex-end;
+  min-height: var(--card-mini-h);
+}
+#showdown-stage .stage-slot {
+  width: var(--card-mini-w);
+  height: var(--card-mini-h);
+  flex: none;
+}
+#showdown-stage .stage-slot + .stage-slot {
+  margin-left: calc(var(--card-mini-overlap) * -1);
+}
+#showdown-stage .stage-slot .card { margin: 0; }
+/* 判定的牌型是这一段最需要看清的信息，做成醒目的金色徽标 */
+#showdown-stage .stage-label {
+  font-size: var(--fs-lg);
+  line-height: 1.1;
+  color: var(--edge);
+  background: var(--gold);
+  border: 3px solid var(--edge);
+  box-shadow: 0 4px 0 #000000aa;
+  padding: 2px 12px;
+  white-space: nowrap;
+  min-height: 34px;
+}
+#showdown-stage .stage-label:empty {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* ---------- 第三段：己方区域 ---------- */
 #you-zone {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 6px 8px 0;
-  flex: none;
+  padding: 8px 10px 0;
 }
 
 #you-played {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-end;
   justify-content: center;
-  min-height: calc(var(--card-h) + 14px);
+  min-height: calc(var(--card-mini-h) + 10px);
 }
 
 #own-status {
   display: flex;
-  gap: 14px;
+  gap: 18px;
   align-items: center;
   flex-wrap: wrap;
   justify-content: center;
-  padding: 3px 12px;
-  font-size: 13px;
-  color: var(--card-face);
+  padding: 2px 12px;
+  font-size: var(--fs);
+  color: var(--text);
+  min-height: 34px;
 }
 #own-status b { color: var(--gold); }
-#own-status .sep { color: var(--dim); }
 
 #hand {
   display: flex;
   justify-content: center;
-  padding: 10px 12px 8px; /* 顶部留出扇形/抽牌的余量 */
-  min-height: calc(var(--card-h) + 26px);
+  padding: 20px 12px 8px; /* 顶部 20px 是「选中上抬 16px」的余量 */
+  min-height: calc(var(--card-h) + 28px);
 }
 #hand .card {
   cursor: pointer;
-  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+#hand .card + .card { margin-left: calc(var(--card-overlap) * -1); }
+
+/* ---------- 押注坞：滑块 + 大按钮 ---------- */
+#bet-dock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 4px 10px;
+  min-height: 62px;
+  width: 100%;
 }
 
-/* ---- 操作栏 ---- */
+.slider-group { display: flex; align-items: center; gap: 10px; }
+.slider-group .val { color: var(--gold); min-width: 44px; text-align: center; font-size: var(--fs-lg); line-height: 1; }
+.slider-group .hint { color: var(--text-dim); font-size: var(--fs); }
+
+/* ---------- 操作栏 ---------- */
 #action-bar {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 14px;
   flex-wrap: wrap;
-  padding: 8px;
+  padding: 6px 12px;
   min-height: 56px;
-  border-top: 3px solid var(--wood-dark);
-  background: #00000090;
-  flex: none;
+  border-top: 3px solid var(--panel-edge);
+  background: #00000099;
 }
+#action-bar .hint { color: var(--text-dim); font-size: var(--fs); }
+#action-bar .preview { color: var(--gold); font-size: var(--fs); }
 
-#action-bar .hint { color: var(--dim); font-size: 12px; }
-#action-bar .preview { color: var(--gold); font-size: 13px; }
-#action-bar .slider-group { display: flex; align-items: center; gap: 6px; }
-#action-bar .slider-group .val { color: var(--gold); min-width: 30px; text-align: center; font-size: 16px; }
-
-/* ---- 教学大卡片 ---- */
-#tutorial-slot {
-  flex: none;
-  max-height: 36vh;
-  overflow-y: auto;
-  padding: 0 8px;
-}
-
-#tutorial-card {
-  position: static;
-  width: min(100%, 720px);
-  margin: 4px auto;
-  background: var(--night-2);
-  border: 3px solid var(--gold);
-  box-shadow: 6px 6px 0 #000000aa;
-  padding: 10px 16px 12px;
-}
-
-#tutorial-card .tut-step { font-size: 12px; color: var(--dim); letter-spacing: 2px; }
-#tutorial-card .tut-title { font-size: 22px; color: var(--gold); margin: 2px 0 6px; text-shadow: 2px 2px 0 #00000088; }
-#tutorial-card .tut-text p { font-size: 14px; line-height: 1.9; margin: 2px 0; color: var(--card-face); }
-#tutorial-card .tut-text em { font-style: normal; color: var(--gold); }
-#tutorial-card .tut-num { color: var(--gold); font-size: 15px; }
-#tutorial-card .tut-actions { display: flex; gap: 10px; margin-top: 8px; }
-#tutorial-card .tut-skip { font-size: 11px; color: var(--dim); margin-top: 6px; }
-
-/* 教学高亮指引 */
-.tut-hl {
-  outline: 3px solid var(--gold) !important;
-  outline-offset: 2px;
-  animation: tutPulse 1.2s steps(2) infinite;
-}
-@keyframes tutPulse {
-  50% { outline-color: #e8b04b44; }
-}
-
-/* ---- 日志 ---- */
+/* ---------- 战报轨（栅格列，不悬浮） ---------- */
 #log {
-  position: fixed;
-  left: 8px;
-  top: 42px;
-  width: 224px;
-  max-height: 40vh;
-  overflow-y: auto;
-  font-size: 11px;
-  color: var(--card-face);
-  background: #000000b0;
-  border: 2px solid var(--wood-dark);
-  z-index: 60;
-  line-height: 1.7;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 #log-head {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 6px;
+  gap: 6px;
+  padding: 6px 8px;
   color: var(--gold);
-  font-size: 12px;
-  border-bottom: 1px solid #ffffff22;
-  background: #00000070;
-  position: sticky;
-  top: 0;
+  font-size: var(--fs);
+  border-bottom: 2px solid #ffffff1a;
+  background: #00000066;
 }
-#log-head .log-av .pixel-avatar { border: 1px solid var(--card-edge); }
-#log-lines { padding: 4px 6px; }
-#log .log-line { padding: 2px 0; border-bottom: 1px dashed #ffffff10; color: var(--dim); }
+#log-head .log-av .pixel-avatar { border: 2px solid var(--edge); display: block; }
+#log-lines {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px;
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  line-height: 1.75;
+}
+#log .log-line { padding: 2px 0; border-bottom: 1px dashed #ffffff12; color: var(--text-dim); }
 #log .log-line:first-child { color: var(--gold); }
 
-/* ---- 筹码 ---- */
-.chip-stack { display: inline-flex; align-items: flex-end; min-width: 10px; }
-.chip {
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  border: 2px dashed var(--card-edge);
-  box-shadow: inset 0 0 0 2px #ffffff55, 1px 1px 0 #00000088;
-  margin-left: -7px;
+/* ---------- 牌型表轨（0 宽 → 展开，永不覆盖牌桌） ---------- */
+#drawer {
+  grid-area: drawer;
+  width: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border-left: 0 solid var(--panel-edge);
+  transition: width 0.16s steps(6);
 }
-.chip:first-child { margin-left: 0; }
-.chip:nth-child(3n + 1) { background: var(--chip-r); }
-.chip:nth-child(3n + 2) { background: var(--chip-b); }
-.chip:nth-child(3n) { background: var(--chip-w); }
-
-/* 牌型用牌细金边 */
-.card.mark::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border: 1px solid #e8b04bcc;
-  pointer-events: none;
+#drawer.open {
+  width: 348px;
+  border-left-width: 3px;
 }
-
-/* 飞行卡牌 */
-.fly-card { position: fixed; z-index: 180; pointer-events: none; will-change: transform; }
-
-/* ---- 小屏适配 ---- */
-@media (max-width: 720px) {
-  :root {
-    --card-w: 46px;
-    --card-h: 64px;
-    --card-mini-w: 30px;
-    --card-mini-h: 42px;
-  }
-  .opp-card { width: 140px; }
-  #log { display: none; }
-  #tutorial-slot { max-height: 30vh; }
-  #tutorial-card { padding: 8px 10px; }
-  #tutorial-card .tut-title { font-size: 18px; }
-  #tutorial-card .tut-text p { font-size: 12.5px; line-height: 1.7; }
-  #center-row { gap: 14px; }
-  #pot-block .pot-num { font-size: 24px; }
+#drawer .drawer-inner {
+  width: 348px;
+  height: 100%;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+#drawer .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#drawer .drawer-head h3 { margin: 0; flex: 1; }
+#drawer .drawer-head button { flex: none; }
+#drawer h3 { color: var(--gold); font-size: var(--fs); margin: 10px 0 6px; }
+#drawer table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+}
+#drawer td { padding: 3px 4px; border-bottom: 1px solid #ffffff12; }
+#drawer td.rank { color: var(--text-mute); width: 30px; }
+#drawer td.alias { color: var(--gold); }
+#drawer tr.big td { color: var(--gold); }
+#drawer .drawer-note {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  line-height: 1.9;
+  color: var(--text-dim);
 }
 
-/* ---- 教学大卡片 v2：教官立绘 + 打字机对话 ---- */
-#tutorial-card {
+/* ---------- 新手教学带：占一整行，永不与操作区抢位置 ---------- */
+#tutorial-slot {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
-  gap: 14px;
-  align-items: stretch;
+  justify-content: center;
+  padding: 8px;
+}
+#tutorial-slot:empty { display: none; }
+
+/* 立绘在上、台词在下：侧轨只有 480px 宽，横排的话台词每行不到 20 字 */
+#tutorial-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 3px solid var(--gold);
+  box-shadow: 0 6px 0 #000000aa;
+  cursor: pointer;
 }
 
 #tutorial-card .tut-portrait {
   flex: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: 10px;
   padding: 6px 10px;
-  border-right: 2px dashed var(--wood);
+  border-bottom: 3px dashed var(--gold);
+  background: #00000055;
 }
 #tutorial-card .tut-portrait .pixel-avatar {
-  border: 2px solid var(--card-edge);
-  background: #ffffff12;
+  border: 2px solid var(--edge);
+  background: #ffffff10;
   box-shadow: 3px 3px 0 #00000088;
 }
 #tutorial-card .tut-name {
-  font-size: 12px;
+  font-size: var(--fs);
   color: var(--gold);
   white-space: nowrap;
-  writing-mode: horizontal-tb;
 }
 
 #tutorial-card .tut-dialog {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  padding: 8px 12px 10px;
 }
-#tutorial-card .tut-title { margin-top: 0; }
+#tutorial-card .tut-step {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-mute);
+  letter-spacing: 2px;
+}
+#tutorial-card .tut-title {
+  font-size: var(--fs);
+  color: var(--gold);
+  margin: 2px 0 6px;
+  text-shadow: 2px 2px 0 #00000088;
+}
+#tutorial-card .tut-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+#tutorial-card .tut-text p { font-size: var(--fs); line-height: 1.55; margin: 3px 0; color: var(--text); }
+#tutorial-card .tut-text em { font-style: normal; color: var(--gold-hi); }
+#tutorial-card .tut-num { color: var(--gold-hi); }
+#tutorial-card .tut-actions { flex: none; display: flex; gap: 10px; margin-top: 8px; align-items: center; }
+#tutorial-card .tut-skip {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-mute);
+}
+
+/* 段落确认 ▼ */
+#tutorial-card .tut-next {
+  color: var(--gold);
+  font-size: var(--fs);
+  text-align: right;
+  animation: tutNext 0.9s steps(2) infinite;
+}
+@keyframes tutNext { 50% { opacity: 0.25; } }
 
 /* 打字机光标 */
-.tut-text.typing::after {
-  content: '▌';
-  color: var(--gold);
-  animation: tutCaret 0.7s steps(2) infinite;
-}
-@keyframes tutCaret {
-  50% { opacity: 0; }
-}
+.tut-text.typing::after { content: '▌'; color: var(--gold); animation: tutCaret 0.7s steps(2) infinite; }
+@keyframes tutCaret { 50% { opacity: 0; } }
 
-.opp-name .pixel-avatar { display: inline-block; vertical-align: -6px; margin-right: 3px; }
-.seat-grid .name .pixel-avatar { display: inline-block; vertical-align: -8px; margin-right: 6px; }
-
-@media (max-width: 720px) {
-  #tutorial-card .tut-portrait-svg .pixel-avatar { width: 48px; height: 66px; }
-  #tutorial-card .tut-portrait { padding: 4px 6px; }
+/* 「正在等玩家照做」时的进度点 */
+.tut-dots { display: inline-flex; gap: 5px; align-items: center; }
+.tut-dots i {
+  width: 8px;
+  height: 8px;
+  background: var(--text-mute);
+  display: block;
 }
+.tut-dots i.on { background: var(--gold); }
 
-/* ---- 押注坞（手牌上方：滑块 + 大按钮） ---- */
-#bet-dock {
+/* ---- 规则讲解的示意图：用真实卡牌/筹码组件拼，风格与牌桌一致 ----
+   配图高度由内容决定（flex: none），台词区 flex:1 + 内部滚动，
+   所以图再大也只会让台词可滚，不会把教学卡撑出侧轨。 */
+#tutorial-card .tut-props {
+  flex: none;
+  margin: 2px 0 8px;
+  padding: 8px 10px;
+  background: #00000077;
+  border: 2px solid #ffffff1f;
+  min-height: 78px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+}
+#tutorial-card .tut-props[hidden] { display: none; }
+
+#tutorial-card .prop-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
-  padding: 4px 8px;
-  min-height: 46px;
-  width: 100%;
+  gap: 6px 10px;
 }
 
-.dock-btn {
-  font-size: 17px;
-  padding: 12px 26px;
-}
-.dock-btn.primary { background: var(--gold); color: var(--card-edge); }
-.dock-btn.danger-btn { background: var(--danger); margin-left: 10px; }
+#tutorial-card .prop-chips { display: flex; align-items: center; }
+#tutorial-card .prop-chips .chip { width: 20px; height: 20px; }
 
+#tutorial-card .prop-cards { display: flex; align-items: center; }
+#tutorial-card .prop-cards .card + .card { margin-left: -18px; }
+
+#tutorial-card .prop-step {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--panel-2);
+  border: 2px solid var(--panel-edge);
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+#tutorial-card .prop-arrow { color: var(--gold); font-size: var(--fs); }
+
+#tutorial-card .prop-tag {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--gold-hi);
+  white-space: nowrap;
+}
+#tutorial-card .prop-tag.dim { color: var(--text-dim); }
+
+/* 指引高亮：用 outline，不改变布局、不遮挡 */
+.tut-hl {
+  outline: 4px solid var(--gold) !important;
+  outline-offset: 3px;
+  animation: tutPulse 1.1s steps(2) infinite;
+}
+@keyframes tutPulse { 50% { outline-color: #dd8c0044; } }
+
+/* 教学门控：本步不该点的控件压暗并挡住点击，防止玩家岔到别的分支 */
+#table.tut-gate .tut-locked {
+  opacity: 0.4;
+  filter: grayscale(0.7);
+  pointer-events: none;
+}
+
+/* ---------- 覆盖层（摊牌裁定 / 终局）：唯一的模态，带遮罩 ---------- */
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 18px;
+  background: #0a0812cc;
+}
+#overlay.show { display: flex; }
+#overlay .banner {
+  font-size: var(--fs-lg);
+  color: var(--gold);
+  text-shadow: 3px 3px 0 var(--edge);
+  background: var(--panel);
+  border: 3px solid var(--gold);
+  box-shadow: 0 8px 0 #000000aa;
+  padding: 16px 30px;
+}
+#overlay .sub { font-size: var(--fs); color: var(--text); }
+#overlay .score { font-size: var(--fs); line-height: 2; text-align: center; min-width: 340px; }
+#overlay .score b { color: var(--gold); }
+
+/* ---------- 教官裁定 ---------- */
+.verdict-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 26px;
+  background: var(--panel);
+  border: 3px solid var(--gold);
+  box-shadow: 0 8px 0 #000000aa;
+  padding: 20px 34px;
+  max-width: 760px;
+}
+.verdict-avatar { border: 3px solid var(--edge); background: #ffffff10; flex: none; }
+.verdict-text { min-width: 0; }
+.verdict-title { font-family: var(--font-pixel); font-size: var(--fs-sm); color: var(--text-mute); letter-spacing: 4px; }
+.verdict-main { font-size: var(--fs-lg); color: var(--gold); text-shadow: 3px 3px 0 var(--edge); }
+.verdict-sub { font-size: var(--fs); color: var(--text); margin-top: 6px; }
+
+/* 收下多少 / 净变化多少要分开讲，否则"收下 8"会被读成"赚了 8" */
+.verdict-pot { font-size: var(--fs); color: var(--text); margin-top: 8px; }
+.verdict-pot b { color: var(--gold); font-size: var(--fs-lg); }
+.verdict-pot .dim {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-mute);
+  margin-left: 4px;
+}
+.verdict-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 2px 20px;
+  margin-top: 8px;
+  border-top: 2px dashed #ffffff22;
+  padding-top: 6px;
+}
+.verdict-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.verdict-row.win { color: var(--gold); }
+.verdict-row b.up { color: var(--steel-hi); }
+.verdict-row b.down { color: var(--heart-hi); }
+.verdict-notes {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--text-mute);
+  margin-top: 6px;
+}
+
+/* ---------- 筹码 ---------- */
+.chip-stack { display: inline-flex; align-items: center; }
+.chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--edge);
+  box-shadow: inset 0 0 0 3px #ffffff66, 1px 1px 0 #00000088;
+  margin-left: -9px;
+}
+.chip:first-child { margin-left: 0; }
+.chip:nth-child(3n + 1) { background: var(--heart); }
+.chip:nth-child(3n + 2) { background: var(--steel); }
+.chip:nth-child(3n) { background: var(--paper); }
+
+/* ---------- 头像 ---------- */
+.opp-name .pixel-avatar { display: inline-block; vertical-align: -6px; margin-right: 4px; }
+.own-av { display: inline-flex; align-items: center; gap: 6px; }
+.own-av .pixel-avatar { border: 2px solid var(--edge); background: #ffffff10; }
+
+/* ---------- 大厅 / 房间 ---------- */
+#lobby,
+#room {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+#lobby .title,
+#room .title {
+  font-size: var(--fs-lg);
+  letter-spacing: 14px;
+  text-indent: 14px;
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  min-width: min(560px, 92vw);
+}
+.menu .row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+
+#room .code-big {
+  font-size: var(--fs-lg);
+  color: var(--gold);
+  letter-spacing: 12px;
+  text-shadow: 3px 3px 0 var(--edge);
+  cursor: pointer;
+}
+
+.seat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 168px);
+  gap: 12px;
+}
+.seat-grid .cell {
+  padding: 12px;
+  text-align: center;
+  background: #00000088;
+  border: 3px solid #ffffff1f;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+.seat-grid .cell.empty { opacity: 0.35; }
+.seat-grid .cell .name { font-size: var(--fs); color: var(--text); }
+.seat-grid .cell .name .pixel-avatar { display: inline-block; vertical-align: -8px; margin-right: 6px; }
+.seat-grid .cell .meta {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.seat-grid .cell .meta .host { color: var(--gold); }
+
+/* 大厅：形象选择 */
 .avatar-pick {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 5px 7px;
-  border: 2px solid transparent;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 3px solid transparent;
   cursor: pointer;
-  font-size: 11px;
-  color: var(--dim);
+  font-size: var(--fs);
+  color: var(--text-dim);
 }
-.avatar-pick.sel { border-color: var(--gold); color: var(--card-face); background: #00000055; }
+.avatar-pick .pixel-avatar { border: 2px solid var(--edge); background: #ffffff10; }
+.avatar-pick.sel { border-color: var(--gold); color: var(--text); background: #00000066; }
+.avatar-pick:hover { color: var(--text); }
 
-.own-av { display: inline-flex; align-items: center; gap: 4px; }
-.own-av .pixel-avatar { border: 1px solid var(--card-edge); background: #ffffff10; }
-
-/* ---- 教官裁定演出 ---- */
-.verdict-box {
+/* 大厅：自定义参数 */
+#cfg {
+  width: 100%;
+  max-width: 560px;
+  padding: 10px 12px;
+  background: #00000088;
+  border: 3px solid var(--panel-edge);
+}
+#cfg summary { cursor: pointer; color: var(--text-dim); font-size: var(--fs); }
+#cfg .cfg-row {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 24px;
-  background: var(--night-2);
-  border: 3px solid var(--gold);
-  box-shadow: 6px 6px 0 #000000aa;
-  padding: 18px 30px;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: var(--fs);
 }
-.verdict-avatar { border: 2px solid var(--card-edge); background: #ffffff10; }
-.verdict-title { font-size: 14px; color: var(--dim); letter-spacing: 4px; }
-.verdict-main { font-size: 34px; color: var(--gold); text-shadow: 3px 3px 0 #00000088; }
-.verdict-sub { font-size: 15px; color: var(--card-face); margin-top: 4px; }
+#cfg .cfg-note {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--text-mute);
+  margin-top: 8px;
+}
 
-/* ---- 教学对话框气泡 ---- */
-#tutorial-card .tut-dialog {
-  position: relative;
-  background: #00000066;
-  border: 1px solid #ffffff22;
-  padding: 10px 14px;
-}
-#tutorial-card .tut-dialog::before {
-  content: '';
-  position: absolute;
-  left: -14px;
-  top: 24px;
-  border: 8px solid transparent;
-  border-right-color: var(--gold);
-}
-#tutorial-card .tut-next {
+/* 逐阶段限时的分组标题与数值输入 */
+#cfg .cfg-group {
+  margin: 12px 0 2px;
+  padding-top: 8px;
+  border-top: 1px dashed #ffffff22;
+  font-size: var(--fs);
   color: var(--gold);
-  font-size: 12px;
-  text-align: right;
-  animation: tutNext 0.9s steps(2) infinite;
-  margin-top: 4px;
 }
-@keyframes tutNext {
-  50% { opacity: 0.25; }
+#cfg .cfg-group em {
+  font-style: normal;
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-mute);
+  margin-left: 6px;
 }
-
-/* ---- 中央牌堆（发牌/弃牌动画的起落点） ---- */
-#deck-pile {
-  display: flex;
-  flex-direction: column;
+#cfg .cfg-row > span:first-child {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+#cfg .cfg-row > span:first-child em,
+#cfg .cfg-num em {
+  font-style: normal;
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-mute);
+}
+#cfg .cfg-num {
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  position: relative;
-  width: 44px;
+  gap: 6px;
+  flex: none;
 }
-#deck-pile .pile-card {
-  position: absolute;
-  top: 0;
-  left: 6px;
-  width: 30px;
-  height: 42px;
-  background: repeating-linear-gradient(45deg, #2b3a67 0 4px, #22305a 4px 8px);
-  border: 2px solid var(--card-edge);
-  box-shadow: inset 0 0 0 2px var(--card-face);
-}
-#deck-pile .pile-card:nth-child(2) {
-  transform: translate(3px, -3px) rotate(6deg);
-}
-#deck-pile span {
-  margin-top: 44px;
-  font-size: 10px;
-  color: var(--dim);
+#cfg input[type='number'] {
+  width: 92px;
+  text-align: right;
+  letter-spacing: 0;
 }
 
-/* ---- 对手手牌堆（蜘蛛纸牌式半叠） ---- */
-.opp-hand {
-  display: flex;
-  align-items: flex-end;
-  min-height: 48px;
+/* ---------- 小屏适配：三轨改两段式堆叠，仍然不重叠 ---------- */
+@media (max-width: 1400px) {
+  #stage { grid-template-columns: 400px minmax(0, 1fr) auto; }
+  .opp-card { width: 218px; }
 }
-.stack-back {
-  width: 30px;
-  height: 44px;
-  margin-left: -18px;
-  background: repeating-linear-gradient(45deg, #2b3a67 0 4px, #22305a 4px 8px);
-  border: 2px solid var(--card-edge);
-  box-shadow: inset 0 0 0 2px var(--card-face), 1px 1px 0 #00000066;
+
+@media (max-width: 1180px) {
+  #stage {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'game drawer'
+      'rail rail';
+    grid-template-rows: minmax(200px, 1fr) auto;
+  }
+  #side-rail {
+    border-right: 0;
+    border-top: 3px solid var(--panel-edge);
+    max-height: 210px;
+  }
+  #tutorial-card .tut-portrait { padding: 4px 8px; }
+  #drawer.open { width: 300px; }
+  #drawer .drawer-inner { width: 300px; }
 }
-.stack-back:first-child { margin-left: 0; }
-.stack-count {
-  font-size: 10px;
-  color: var(--dim);
-  margin-left: 5px;
-  align-self: center;
+
+@media (max-width: 900px) {
+  :root {
+    --card-w: 74px;
+    --card-h: 98px;
+    --card-mini-w: 37px;
+    --card-mini-h: 49px;
+    --card-overlap: 24px;
+    --card-mini-overlap: 17px;
+  }
+  #center-row { gap: 18px; }
+  .opp-card { width: 190px; }
+  #stage { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'game drawer'; }
+  #side-rail { display: none; }
+  .seat-grid { grid-template-columns: repeat(3, 132px); }
 }

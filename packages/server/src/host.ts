@@ -75,15 +75,17 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
     bots.kick(room);
   }
 
-  function applyAndCommit(room: Room, seat: number, action: GameAction, ack?: Ack) {
+  /** 返回是否被接受：机器人驱动据此判断要不要重试，避免被拒后整局停摆 */
+  function applyAndCommit(room: Room, seat: number, action: GameAction, ack?: Ack): boolean {
     const res = applyAction(room.state, seat, action, Date.now());
     if (!res.ok) {
       ack?.({ ok: false, error: res.error });
-      return;
+      return false;
     }
     room.state = res.state;
     ack?.({ ok: true });
     commit(room, res.events);
+    return true;
   }
 
   // ---- 阶段超时 ----

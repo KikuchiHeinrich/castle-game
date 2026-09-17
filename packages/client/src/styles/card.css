@@ -1,11 +1,24 @@
-/* ============ 卡牌：双面翻转 / 像素牌面 ============ */
+/* ============ 卡牌：Kingslayer cards.png 图集 + 双面翻转 ============
+   图集 637×325 = 13 列 × 5 行，单格 49×65。
+   全尺寸手牌用 2 倍格（98×130），出战区小牌用 1 倍格（49×65）—— 整数倍缩放，点阵不糊。 */
 
 .card {
-  width: var(--card-w);
-  height: var(--card-h);
-  perspective: 400px;
+  --cw: 98px;
+  --ch: 130px;
+  --atlas-w: 1274px;
+  --atlas-h: 650px;
+  width: var(--cw);
+  height: var(--ch);
   flex: none;
   position: relative;
+  perspective: 600px;
+}
+
+.card.mini {
+  --cw: 49px;
+  --ch: 65px;
+  --atlas-w: 637px;
+  --atlas-h: 325px;
 }
 
 .card .card-inner {
@@ -13,7 +26,7 @@
   height: 100%;
   position: relative;
   transform-style: preserve-3d;
-  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .card.up .card-inner { transform: rotateY(180deg); }
@@ -23,108 +36,106 @@
   inset: 0;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  border: 2px solid var(--card-edge);
-  box-shadow:
-    inset 0 0 0 2px var(--card-face),
-    inset 0 0 0 3px var(--card-edge),
-    2px 3px 0 #00000066;
+  background-repeat: no-repeat;
+  background-size: var(--atlas-w) var(--atlas-h);
+  image-rendering: pixelated;
+  filter: drop-shadow(2px 3px 0 #00000066);
 }
 
+/* 正面：按 --col / --row 定位到图集对应的一格 */
 .card .face.front {
-  background: var(--card-face);
   transform: rotateY(180deg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background-image: url('/king/cards/cards.png');
+  background-position: calc(var(--col, 0) * var(--cw) * -1) calc(var(--row, 0) * var(--ch) * -1);
 }
 
+/* 背面：素材 card_back.png 本身就是 49×65，用 100% 尺寸正好整数倍放大 */
 .card .face.back {
-  background:
-    repeating-linear-gradient(45deg, #2b3a67 0 4px, #22305a 4px 8px);
-  box-shadow:
-    inset 0 0 0 3px var(--card-face),
-    inset 0 0 0 4px var(--card-edge),
-    2px 3px 0 #00000066;
+  background-image: url('/king/cards/card_back.png');
+  background-size: 100% 100%;
 }
 
-/* 卡背中央的城堡垛口 */
-.card .face.back::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 24px;
-  height: 20px;
-  background: var(--card-face);
-  clip-path: polygon(
-    0 100%, 0 40%, 16% 40%, 16% 20%, 32% 20%, 32% 40%, 44% 40%, 44% 0,
-    56% 0, 56% 40%, 68% 40%, 68% 20%, 84% 20%, 84% 40%, 100% 40%, 100% 100%
-  );
-  opacity: 0.9;
-}
-
-.card .corner {
-  position: absolute;
-  top: 3px;
-  left: 4px;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--ink);
-  letter-spacing: -1px;
-}
-
-.card .pip {
-  font-size: 26px;
-  line-height: 1;
-}
-
-.card.red .corner,
-.card.red .pip { color: var(--red); }
-.card .corner, .card .pip { color: var(--ink); }
-
-/* 选中态 */
-.card.sel .card-inner {
-  transform: rotateY(180deg);
-}
+/* ---- 选中：抬起 + 金色描边（不旋转，点阵保持锐利） ---- */
+.card.sel .face { filter: brightness(1.15) drop-shadow(2px 3px 0 #00000066); }
 .card.sel::after {
   content: '';
   position: absolute;
   inset: -3px;
-  border: 2px solid var(--gold);
+  border: 3px solid var(--gold);
+  box-shadow: 0 0 0 3px var(--edge);
   pointer-events: none;
 }
 
-/* 胜者牌型用牌高亮 */
-.card.gold::after {
+/* ---- 出战区的三种状态 ----
+   两个维度分开表达，别混在一起：
+   ① 这张牌是不是"摊在桌上所有人都看得到"（每段的最大牌才会亮）
+   ② 这张牌有没有参与当前牌型
+   注意 filter 要连同原有的投影一起写，否则会把 drop-shadow 覆盖掉。 */
+
+/* 只有自己看得到的牌：压暗。自己仍然看得清牌面，但一眼能分辨它不是公开信息 */
+.card.private .face {
+  filter: brightness(0.5) saturate(0.6) drop-shadow(2px 3px 0 #00000066);
+}
+
+/* 亮出的最大牌：提亮 + 一圈微光 */
+.card.revealed .face {
+  filter: brightness(1.18) drop-shadow(0 0 4px #ffffff66) drop-shadow(2px 3px 0 #00000066);
+}
+
+/* 组成当前牌型的牌：银边（内衬一圈深色，保持像素硬边的手感） */
+.card.used::after {
   content: '';
   position: absolute;
-  inset: -3px;
-  border: 3px solid var(--gold);
-  box-shadow: 0 0 0 1px var(--card-edge);
+  inset: -2px;
+  border: 2px solid var(--silver);
+  box-shadow: 0 0 0 2px var(--edge);
   pointer-events: none;
 }
 
-/* 迷你牌（他人亮牌 / 出战区） */
-.card.mini { width: var(--card-mini-w); height: var(--card-mini-h); }
-.card.mini .corner { font-size: 10px; top: 2px; left: 2px; }
-.card.mini .pip { font-size: 16px; }
+/* ---- 本轮新补的手牌：金色脉冲 + 「新」角标 ---- */
+.card.fresh::before {
+  content: '新';
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 3;
+  background: var(--gold);
+  color: var(--edge);
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 3px;
+  box-shadow: 2px 2px 0 #000000aa;
+  border: 2px solid var(--edge);
+}
+.card.fresh.fresh-anim { animation: freshPulse 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) 1; }
+@keyframes freshPulse {
+  0% { filter: brightness(2.1) drop-shadow(0 0 6px var(--gold-hi)); }
+  55% { filter: brightness(1.25) drop-shadow(0 0 4px #dd8c0088); }
+  100% { filter: brightness(1); }
+}
 
-/* 牌背小堆（他人手牌数量） */
-.backs { display: flex; gap: -8px; }
+/* ---- 牌背小堆（他人手牌数量 / 牌堆） ---- */
+.backs { display: flex; }
 .backs .mini-back {
   width: 22px;
   height: 32px;
-  margin-left: -8px;
-  background: repeating-linear-gradient(45deg, #2b3a67 0 3px, #22305a 3px 6px);
-  border: 1px solid var(--card-edge);
-  box-shadow: inset 0 0 0 1px var(--card-face);
+  margin-left: -10px;
+  background: url('/king/cards/card_back.png') center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+  filter: drop-shadow(1px 1px 0 #00000066);
 }
 .backs .mini-back:first-child { margin-left: 0; }
+
+/* 发牌过程中"还没送到"的牌：只隐藏不摘除，保住占位所以布局不跳，
+   飞牌落地时去掉这个类，看起来就是"发过来一张、就待在那儿" */
+.card.dealing { visibility: hidden; }
 
 /* 飞行中的临时卡牌 */
 .fly-card {
   position: fixed;
-  z-index: 180;
+  z-index: 280;
   pointer-events: none;
   will-change: transform;
+  filter: drop-shadow(3px 4px 0 #00000088);
 }

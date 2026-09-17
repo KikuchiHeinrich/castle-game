@@ -41,12 +41,22 @@ export function mountRoom(root: HTMLElement, view: PlayerView) {
         <button id="btn-types" class="ghost">牌型总表</button>
         <button id="btn-leave" class="ghost">离开</button>
       </div>
-      <div class="loading">初始 100 筹码 · 底注 1 · 筹码归零淘汰</div>
+      <div class="loading" id="room-settings"></div>
     </div>
     <div id="drawer"></div>
   `;
 
   renderHandTypes(root.querySelector('#drawer')!);
+  // 本局实际生效的参数（原来这里写死了"初始 100 筹码 · 底注 1"）
+  const sec = (ms: number) => (ms === 0 ? '不限时' : `${Math.round(ms / 1000)}s`);
+  const st = view.settings;
+  root.querySelector('#room-settings')!.innerHTML =
+    `初始 <b>${st.startChips}</b> 筹码 · 底注 <b>${st.ante}</b> · 筹码倍数 <b>×${st.chipMultiplier}</b>` +
+    `<br/>赛制：回合上限 <b>${st.maxRounds > 0 ? st.maxRounds + ' 回合' : '无上限'}</b> · ` +
+    `底注递增 <b>${st.anteRamp > 0 ? `每 ${st.anteRamp} 回合 +1` : '不递增'}</b>` +
+    `<br/>限时：防守宣言 <b>${sec(st.defenseMs)}</b> · 每人行动 <b>${sec(st.turnMs)}</b> · ` +
+    `摊牌展示 <b>${st.settlementMs === 0 ? '不等待' : sec(st.settlementMs)}</b> · 全桌兜底 <b>${sec(st.idleMs)}</b>` +
+    `<br/>筹码归零淘汰，最后存活者胜`;
   root.querySelector('#btn-types')!.addEventListener('click', () => toggleDrawer());
 
   root.querySelector('#copy-code')!.addEventListener('click', () => {

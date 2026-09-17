@@ -6,7 +6,9 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root,
-  publicDir: false,
+  // Kingslayer 美术素材（卡牌图集/按钮/音效/子集字体）放在 public/king，
+  // 构建时原样拷到 dist/king，服务端静态托管即可，不需要打包器处理
+  publicDir: path.join(root, 'public'),
   build: {
     outDir: path.join(root, 'dist'),
     emptyOutDir: true,
@@ -16,7 +18,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/socket.io': {
-        target: 'http://localhost:3000',
+        target: `http://localhost:${process.env.PORT ?? 3000}`,
         ws: true,
       },
     },

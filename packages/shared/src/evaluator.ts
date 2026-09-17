@@ -299,3 +299,37 @@ export function bestHandCards(battlefield: Card[]): { hand: HandValue; used: Car
   const byId = new Map(battlefield.map((c) => [c.id, c]));
   return { hand, used: hand.usedIds.map((id) => byId.get(id)!) };
 }
+
+/**
+ * 出战区里"没用上"的牌数 = 杂牌数，也就是"掺水"规则真正要比的东西。
+ *
+ * 为什么不能直接用 bestHand().junk：bestHand 是在**子集**里挑最好的组合，
+ * 而子集里每张牌都被用上了，所以它的 junk 恒为 0。结果就是
+ * 「① 牌型排名 → ② 杂牌少者胜 → ③ 最大牌 → ④ 花色」里的第 ② 步永远轮不到，
+ * 干净的牌型打不过"掺了杂牌但花色更大"的同一个牌型——这条规则等于失效。
+ * 杂牌数必须按**整个出战区**减去实际用掉的牌来算。
+ */
+export function battlefieldJunk(battlefield: Card[]): number {
+  const hv = bestHand(battlefield);
+  if (!hv) return 0;
+  return battlefield.length - hv.usedIds.length;
+}
+
+/**
+ * 两个出战区之间比较大小（摊牌用）：
+ * ① 牌型排名 → ② 杂牌少者胜 → ③ 牌型内最大牌 → ④ 花色。
+ * 返回 > 0 表示 a 更大。
+ */
+export function compareBattlefields(a: Card[], b: Card[]): number {
+  const ha = bestHand(a);
+  const hb = bestHand(b);
+  if (!ha && !hb) return 0;
+  if (!ha) return -1;
+  if (!hb) return 1;
+  if (ha.typeRank !== hb.typeRank) return ha.typeRank - hb.typeRank;
+  const ja = battlefieldJunk(a);
+  const jb = battlefieldJunk(b);
+  if (ja !== jb) return jb - ja;
+  if (ha.keyRank !== hb.keyRank) return ha.keyRank - hb.keyRank;
+  return ha.keySuit - hb.keySuit;
+}

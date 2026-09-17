@@ -9,16 +9,16 @@ import {
   RoundState,
   ShowdownEntry,
   ShowdownResult,
-  compareHandValue,
 } from './types';
 import { buildDeck, rngInt, shuffle } from './deck';
-import { bestHand } from './evaluator';
+import { battlefieldJunk, bestHand, compareBattlefields } from './evaluator';
 import { allPlayers, getPlayer, nextVoter, survivors, voters } from './seating';
 
 // ============ 常量 ============
 
+/** 已迁到 RoomSettings.settlementMs（建房时可自定义），这里只作为默认值供测试与兜底引用 */
 export const TIMING = {
-  settlementMs: 5_000, // 摊牌展示（固定）
+  settlementMs: DEFAULT_SETTINGS.settlementMs,
 };
 export const START_CHIPS = 100;
 export const ANTE = 1;
@@ -28,11 +28,14 @@ export const MIN_PLAYERS = 2;
 
 /** 建房参数规范化（服务端与客户端共用）：越界/非法值落回默认 */
 export function normalizeSettings(p: Partial<RoomSettings> = {}): RoomSettings {
-  const clampMs = (v: unknown, def: number, loSec: number, hiSec: number) => {
+  // 单位一律是**毫秒**——与 DEFAULT_SETTINGS、RoundState.deadlineAt、以及前端
+  // 传入的值保持一致。早期实现把入参当秒又乘了 1000，结果大厅「回合限时」选
+  // 30 秒 / 60 秒 / 5 分钟都会被夹到同一个上限，等于这个设置项从没生效过。
+  const clampMs = (v: unknown, def: number, loMs: number, hiMs: number) => {
     const n = Math.floor(Number(v));
     if (!Number.isFinite(n)) return def;
     if (n === 0) return 0; // 不限时
-    return Math.min(hiSec * 1000, Math.max(loSec * 1000, n * 1000));
+    return Math.min(hiMs, Math.max(loMs, n));
   };
   const clampNum = (v: unknown, def: number, lo: number, hi: number) => {
     const n = Math.floor(Number(v));
@@ -42,9 +45,16 @@ export function normalizeSettings(p: Partial<RoomSettings> = {}): RoomSettings {
   return {
     startChips: clampNum(p.startChips, DEFAULT_SETTINGS.startChips, 10, 100_000),
     ante: clampNum(p.ante, DEFAULT_SETTINGS.ante, 1, 1000),
-    defenseMs: clampMs(p.defenseMs, DEFAULT_SETTINGS.defenseMs, 5, 600),
-    turnMs: clampMs(p.turnMs, DEFAULT_SETTINGS.turnMs, 10, 1200),
-    idleMs: clampMs(p.idleMs, DEFAULT_SETTINGS.idleMs, 30, 3600),
+    // 注意 clampMs 的语义：0 表示"不限时"会被原样保留，非 0 才夹进区间。
+    // 所以下限是"有效的最小值"，不是 0——否则填 1 毫秒也能通过，局就没法玩了。
+    defenseMs: clampMs(p.defenseMs, DEFAULT_SETTINGS.defenseMs, 5_000, 600_000),
+    turnMs: clampMs(p.turnMs, DEFAULT_SETTINGS.turnMs, 10_000, 1_200_000),
+    // 摊牌展示是"等待"而不是"决策"，0 = 不等待、立刻开下一回合
+    // （不能走 deadline()，那个把 0 当永久等待）
+    settlementMs: clampMs(p.settlementMs, DEFAULT_SETTINGS.settlementMs, 0, 60_000),
+    anteRamp: clampNum(p.anteRamp, DEFAULT_SETTINGS.anteRamp, 0, 50),
+    maxRounds: clampNum(p.maxRounds, DEFAULT_SETTINGS.maxRounds, 0, 999),
+    idleMs: clampMs(p.idleMs, DEFAULT_SETTINGS.idleMs, 30_000, 3_600_000),
     chipMultiplier: clampNum(p.chipMultiplier, DEFAULT_SETTINGS.chipMultiplier, 1, 5),
   };
 }
@@ -225,6 +235,16 @@ function updateMaxBet(s: GameState) {
 function newRound(s: GameState, now: number, events: GameEvent[]) {
   const alive = survivors(s);
   const roundNo = (s.round?.roundNo ?? 0) + 1;
+
+  // 回合上限：筹码是无漂移的随机游走（底注全额返池，没有抽水），
+  // 纯靠淘汰可能几百回合才分胜负，所以给一个硬上限——到点由筹码最多者胜。
+  if (s.settings.maxRounds > 0 && roundNo > s.settings.maxRounds) {
+    const best = alive.reduce((a, b) => (b.chips > a.chips ? b : a));
+    s.phase = 'gameover';
+    s.winnerSeat = best.seat;
+    push(s, events, { t: 'game_over', winnerSeat: best.seat });
+    return;
+  }
   // ---- 备战：打出去的牌回牌堆重洗；未使用的手牌继承，只补足到 6 张 ----
   const deck = s.secret!.deck;
   const keptHands = new Map<number, Card[]>();
@@ -253,8 +273,9 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
   }
   s.secret!.deck = pool;
 
-  // ---- 底注 ----
-  const ante = s.settings.ante;
+  // ---- 底注（按底注递增逐段变大，加速收敛） ----
+  const ramp = s.settings.anteRamp;
+  const ante = s.settings.ante + (ramp > 0 ? Math.floor((roundNo - 1) / ramp) : 0);
   let pot = 0;
   for (const p of alive) {
     p.chips -= ante;
@@ -279,13 +300,14 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
     openerSeat: declarer,
     turnSeat: declarer,
     pot,
+    ante,
     maxBet: 0,
     deadlineAt: deadline(now, s.settings.defenseMs),
     lastActionAt: now,
     result: null,
   };
   s.round = round;
-  push(s, events, { t: 'round_start', roundNo, declarerSeat: declarer, pot });
+  push(s, events, { t: 'round_start', roundNo, declarerSeat: declarer, pot, ante });
   push(s, events, { t: 'deal', counts: alive.map((p) => [p.seat, s.secret!.hands[p.seat].length] as [number, number]) });
 }
 
@@ -340,13 +362,14 @@ function voidRound(s: GameState, now: number, events: GameEvent[], reason: strin
     potAmount: 0,
     escrowReturns,
     escrowForfeits: {},
-    chipDeltas: {},
+    // 注金全额退还，人人净变化为 0（前端可以照常显示结算明细）
+    chipDeltas: Object.fromEntries(allPlayers(s).map((p) => [String(p.seat), 0])),
     anteRefunds,
     eliminated: [],
   };
   r.result = result;
   r.phase = 'settlement';
-  r.deadlineAt = now + TIMING.settlementMs;
+  r.deadlineAt = now + s.settings.settlementMs;
   push(s, events, { t: 'round_void', reason });
   push(s, events, { t: 'winner', seat: null, pot: 0, result });
 }
@@ -385,17 +408,14 @@ function doShowdown(s: GameState, now: number, events: GameEvent[]) {
         handName: hv.name,
         handAlias: hv.alias,
         typeRank: hv.typeRank,
-        junk: hv.junk,
+        // 杂牌按整个出战区算（掺水规则），不是按凑牌型的那个子集
+        junk: battlefieldJunk(p.battlefield),
       };
     })
-    .sort((a, b) => {
-      const ha = bestHand(a.cards)!;
-      const hb = bestHand(b.cards)!;
-      return compareHandValue(hb, ha);
-    });
+    // 降序：牌型 → 杂牌少者胜 → 最大牌 → 花色
+    .sort((a, b) => compareBattlefields(b.cards, a.cards));
 
   const attackers = entries.filter((e) => getPlayer(s, e.seat)!.status === 'active');
-  const defenders = entries.filter((e) => getPlayer(s, e.seat)!.status === 'defended');
 
   // 无人能以牌型竞夺奖池 → 回合作废
   if (attackers.length === 0) {
@@ -411,26 +431,36 @@ function doShowdown(s: GameState, now: number, events: GameEvent[]) {
   const escrowForfeits: Record<string, number> = {};
   const chipDeltas: Record<string, number> = {};
 
-  // 防守结算：牌型为全场最大 → 收回托管；否则托管进奖池
-  for (const d of defenders) {
-    const dp = getPlayer(s, d.seat)!;
-    const isFieldMax = d.seat === fieldMax.seat;
+  // 防守结算：牌型为全场最大 → 收回托管；否则托管进奖池。
+  // 这里遍历"所有防守者"而不是"出战区有牌的防守者"，避免任何情况下托管
+  // 既不退还也不入池地凭空消失（声明防守时筹码已经从手里扣掉了）。
+  for (const dp of allPlayers(s)) {
+    if (dp.status !== 'defended') continue;
+    const isFieldMax = dp.seat === fieldMax.seat;
     if (isFieldMax) {
       dp.chips += dp.escrow;
-      escrowReturns[String(d.seat)] = dp.escrow;
-      chipDeltas[String(d.seat)] = (chipDeltas[String(d.seat)] ?? 0) + dp.escrow;
+      escrowReturns[String(dp.seat)] = dp.escrow;
     } else {
       r.pot += dp.escrow;
-      escrowForfeits[String(d.seat)] = dp.escrow;
+      escrowForfeits[String(dp.seat)] = dp.escrow;
     }
     dp.escrow = 0;
   }
 
   // 胜者独吞奖池
   wp.chips += r.pot;
-  chipDeltas[String(wp.seat)] = (chipDeltas[String(wp.seat)] ?? 0) + r.pot;
   const potAmount = r.pot;
   r.pot = 0;
+
+  // 本回合每个座位的**净变化**——玩家要能看懂"钱到底怎么分的"：
+  //   净 = 赢到的奖池 − 本回合投入(底注+押注) − 被罚没的托管
+  // 收回的托管不进这个式子：声明防守时已从筹码里扣掉，结算又原额加回，两者相抵。
+  // 注意奖池里本来就含赢家自己押进去的部分，所以净额通常远小于"收下 N"，
+  // 只播报 N 会让人误以为赢了那么多。
+  for (const p of allPlayers(s)) {
+    const key = String(p.seat);
+    chipDeltas[key] = (p.seat === wp.seat ? potAmount : 0) - p.invested - (escrowForfeits[key] ?? 0);
+  }
 
   // 淘汰与终局
   const eliminated: number[] = [];
@@ -457,7 +487,7 @@ function doShowdown(s: GameState, now: number, events: GameEvent[]) {
   };
   r.result = result;
   r.phase = 'settlement';
-  r.deadlineAt = now + TIMING.settlementMs;
+  r.deadlineAt = now + s.settings.settlementMs;
 
   push(s, events, { t: 'showdown', entries });
   push(s, events, { t: 'winner', seat: wp.seat, pot: potAmount, result });
@@ -658,7 +688,9 @@ export function applyAction(s0: GameState, seat: number, action: GameAction, now
       if (p.status !== 'active') return err('你不能操作');
       if (p.battlefield.length === 0) return err('你的出战区为空');
       const delta = Math.floor(action.betDelta);
-      if (!Number.isFinite(delta) || delta < 0) return err('加注不合法');
+      // 必须真的是"加注"：delta 0 什么都不改变，却会 resetAgrees 把全桌的
+      // "同意结束"清掉，等于白送一次反悔机会。这种空动作从协议层就不接受。
+      if (!Number.isFinite(delta) || delta <= 0) return err('加注须至少 1 个筹码');
       const newBet = p.betTotal + delta;
       if (newBet > p.battlefield.length * s.settings.chipMultiplier) return err('押注不能超过出战区牌数上限');
       if (newBet < r.maxBet) return err(`押注须 ≥ 场上最大押注 ${r.maxBet}，不能免费过牌`);

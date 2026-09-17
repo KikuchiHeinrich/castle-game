@@ -71,13 +71,19 @@ export function legalActions(s: GameState, seat: number): LegalActions {
   if (!base.isYourTurn) return base;
 
   base.canPlay = p.battlefield.length === 0 && base.handCount >= 1;
-  base.canFold = true;
+  // 弃牌只在轮转阶段合法（宣战阶段庄家必须开局，见 rules.ts 的 fold 分支）。
+  // 这里必须与 applyAction 的校验保持一致，否则前端会亮出一个点了会被拒的按钮、
+  // 机器人也会挑到"看似合法实则被拒"的动作，进而整局卡住。
+  base.canFold = r.phase === 'rotation';
 
   if (p.battlefield.length >= 1) {
     base.canAddCards = base.handCount >= 1;
     const min = Math.max(0, r.maxBet - p.betTotal);
     const max = Math.min(p.chips, p.battlefield.length * s.settings.chipMultiplier - p.betTotal);
-    base.canAddChips = max >= min && max >= 0 ? { min, max } : null;
+    // max >= 1：加注 0 是空动作，而且 applyAddChips 会 resetAgrees
+    // 把全桌的"同意结束"清掉——等于白送对手一次反悔机会。所以直接不列为可选。
+    // （这种情况一定同时 canAgree，玩家不会因此无路可走。）
+    base.canAddChips = max >= min && max >= 1 ? { min, max } : null;
     base.canAgree = p.battlefield.length >= 1 && p.betTotal >= r.maxBet;
   } else {
     // 出战区为空：rotation 中首次出牌须押 ≥ maxBet，检查是否凑得出

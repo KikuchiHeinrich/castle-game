@@ -57,6 +57,8 @@ export interface PlayerView {
   pot: number;
   deckCount: number;
   roundNo: number | null;
+  /** 本回合实际底注（底注递增后逐段变大），供 HUD 直接显示 */
+  ante: number;
   roundPhase: RoundPhase | null;
   declarerSeat: number | null;
   openerSeat: number | null;
@@ -106,6 +108,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
     pot: r?.pot ?? 0,
     deckCount: s.secret?.deck.length ?? 52,
     roundNo: r?.roundNo ?? null,
+    ante: r?.ante ?? s.settings.ante,
     roundPhase: r?.phase ?? null,
     declarerSeat: r?.declarerSeat ?? null,
     openerSeat: r?.openerSeat ?? null,
