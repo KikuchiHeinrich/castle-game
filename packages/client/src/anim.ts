@@ -424,6 +424,23 @@ async function handle(ev: GameEvent): Promise<void> {
       // 于是"藏哪几张"就不准了，玩家会看到牌先全冒出来又逐张消失重飞。
       const placed: HTMLElement[] = [];
       if (targetEl) {
+        // —— 先对账再追加 ——
+        // 上一个事件收尾的强制重绘读的是**最新快照**，它可能已经把本事件的牌
+        // （甚至队列里更后面事件的牌）提前画进出战区。这里若发现目标区的牌数
+        // 已经等于快照总数，就先把最后 n 张摘掉，让画面回到"本事件发生前"的
+        // 样子，再按事件节奏逐张飞入——否则同一段牌会被画两遍，出战区短暂
+        // 出现 6+n 张牌的溢出，收尾重绘时又猛地弹回去。
+        const authTotal = own
+          ? (st.view?.you.battlefield.length ?? 0)
+          : (st.view?.players.find((p) => p.seat === ev.seat)?.battlefieldCount ?? 0);
+        if (n > 0 && targetEl.querySelectorAll('.card').length === authTotal && authTotal >= n) {
+          const painted = [...targetEl.querySelectorAll('.card')];
+          for (const node of painted.slice(-n)) {
+            const cluster = node.closest('.seg');
+            node.remove();
+            if (cluster && !cluster.querySelector('.card')) cluster.remove();
+          }
+        }
         // 对手区是"整回合一行铺开"（只有一个 .seg 盒子）。新牌必须追加进**同一行**：
         // 再起一个 .seg 盒子的话，nowrap 的一行会被撑宽、溢出到隔壁玩家的卡片上，
         // 看起来就是"不同玩家的出战区叠在一起"。

@@ -184,7 +184,7 @@ export interface GameState {
 // ============ 行动 ============
 
 export type GameAction =
-  | { t: 'declare_defense'; cardIds: string[]; escrow: number }
+  | { t: 'declare_defense'; cardIds: string[] } // 投入是定量：N 张 = 总投入 N（含底注），托管由引擎计算
   | { t: 'pass_defense' }
   | { t: 'force_close_defense' }
   | { t: 'play'; cardIds: string[]; bet: number }
@@ -220,3 +220,9 @@ export type GameEvent =
     }
   | { t: 'eliminated'; seat: number }
   | { t: 'game_over'; winnerSeat: number };
+
+// ============ 对局表情（不改游戏状态的即兴广播） ============
+
+/** 表情差分 id：与客户端 pixelAvatar 的 Mood 一一对应；服务端以此白名单校验 */
+export const EMOTE_MOODS = ['happy', 'laugh', 'surprised', 'angry', 'cry', 'serious'] as const;
+export type EmoteMood = (typeof EMOTE_MOODS)[number];

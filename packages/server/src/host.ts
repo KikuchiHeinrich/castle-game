@@ -4,6 +4,7 @@ import path from 'node:path';
 import express, { Express, Request, Response } from 'express';
 import { Server as IOServer, Socket } from 'socket.io';
 import {
+  EMOTE_MOODS,
   GameAction,
   GameEvent,
   RoomSettings,
@@ -34,7 +35,29 @@ export interface ServerHandle {
 
 type Ack = (res: { ok: true; [k: string]: unknown } | { ok: false; error: string }) => void;
 
-export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
+export interface ServerOpts {
+  clientDist?: string;
+  /** 单文件可执行模式：url 路径 → 文件内容的内存资源表（Bun 编译产物无法对流式读取内嵌文件） */
+  clientAssets?: Map<string, Buffer>;
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+};
+
+export function buildServer(opts: ServerOpts = {}): ServerHandle {
   const app = express();
   const httpServer = createHttpServer(app);
   const io = new IOServer(httpServer, {
@@ -47,7 +70,21 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
 
   // ---- 静态托管 + 健康检查（生产） ----
   app.get('/healthz', (_req: Request, res: Response) => res.status(200).send('ok'));
-  if (opts.clientDist) {
+  if (opts.clientAssets) {
+    const assets = opts.clientAssets;
+    const sendAsset = (req: Request, res: Response) => {
+      const rel = req.path.replace(/^\/+/, '');
+      // 命中真实文件或子目录首页；否则回退到 SPA 入口 index.html
+      const body = assets.get(rel) ?? assets.get(`${rel}/index.html`) ?? assets.get('index.html');
+      const type = assets.has(rel) || assets.has(`${rel}/index.html`) ? path.extname(rel) : '.html';
+      if (!body) return res.status(404).send('Not Found');
+      res.type(MIME[type] ?? 'application/octet-stream').send(body);
+    };
+    app.use((req: Request, res: Response, next) => {
+      if (req.method !== 'GET' || req.path.startsWith('/socket.io')) return next();
+      sendAsset(req, res);
+    });
+  } else if (opts.clientDist) {
     app.use(express.static(opts.clientDist));
     app.use((req: Request, res: Response, next) => {
       if (req.method !== 'GET' || req.path.startsWith('/socket.io')) return next();
@@ -157,8 +194,22 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
 
   io.on('connection', (socket: Socket) => {
     let joinedRoom: Room | null = null;
+    let lastEmoteAt = 0; // 表情限频：连点刷屏会毁掉牌桌的信息密度
+    const EMOTE_COOLDOWN_MS = 1_200;
 
     const err = (ack: Ack | undefined, error: string) => ack?.({ ok: false, error });
+
+    socket.on('emote', ({ mood }: { mood: string }, ack?: Ack) => {
+      // 表情是即兴演出：不改游戏状态，只做转发。校验 + 限频防刷屏。
+      const seat = joinedRoom?.socketSeats.get(socket.id);
+      if (!joinedRoom || seat === undefined) return ack?.({ ok: false, error: '未加入房间' });
+      if (!(EMOTE_MOODS as readonly string[]).includes(mood)) return ack?.({ ok: false, error: '未知表情' });
+      const now = Date.now();
+      if (now - lastEmoteAt < EMOTE_COOLDOWN_MS) return ack?.({ ok: false, error: '表情发得太快啦' });
+      lastEmoteAt = now;
+      io.in(joinedRoom.code).emit('emote', { seat, mood });
+      ack?.({ ok: true });
+    });
 
     socket.on('room:create', ({ name, settings, avatar }: { name: string; settings?: Partial<RoomSettings>; avatar?: string }, ack: Ack) => {
       const room = rooms.create(settings);
@@ -202,6 +253,18 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
       if (!r.ok) return err(ack, r.error!);
       ack?.({ ok: true });
       broadcastState(room);
+    });
+
+    socket.on('emote', ({ mood }: { mood: string }, ack?: Ack) => {
+      // 表情是即兴演出：不改游戏状态，只做转发。校验 + 限频防刷屏。
+      const seat = joinedRoom?.socketSeats.get(socket.id);
+      if (!joinedRoom || seat === undefined) return ack?.({ ok: false, error: '未加入房间' });
+      if (!EMOTE_MOODS.includes(mood as never)) return ack?.({ ok: false, error: '未知表情' });
+      const now = Date.now();
+      if (now - lastEmoteAt < EMOTE_COOLDOWN_MS) return ack?.({ ok: false, error: '表情发得太快啦' });
+      lastEmoteAt = now;
+      io.in(joinedRoom.code).emit('emote', { seat, mood });
+      ack?.({ ok: true });
     });
 
     socket.on('game:start', (_payload: unknown, ack: Ack) => {

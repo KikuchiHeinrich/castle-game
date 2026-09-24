@@ -6,7 +6,6 @@ export type Screen = 'lobby' | 'room' | 'table';
 export interface UIState {
   selected: string[]; // 选中的手牌 id
   bet: number | null; // 押注滑块当前值
-  escrow: number | null; // 防守托管输入
   freshIds: string[]; // 本轮新补的手牌 id（金框"新"标，下次发牌时更新）
   name: string;
   joinCode: string;
@@ -30,7 +29,6 @@ const store: Store = {
   ui: {
     selected: [],
     bet: null,
-    escrow: null,
     freshIds: [],
     name: localStorage.getItem('castle.name') ?? '',
     joinCode: new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '',

@@ -5,6 +5,7 @@
    永远不会盖在牌桌上（旧版是 position:fixed 悬浮，会压住对手区）。 */
 
 #table {
+  position: relative; /* 表情气泡层与右下角表情按钮的定位基准 */
   height: 100%;
   display: grid;
   grid-template-rows: auto minmax(240px, 1fr) auto auto;
@@ -383,7 +384,7 @@
   justify-content: center;
   gap: 14px;
   flex-wrap: wrap;
-  padding: 6px 12px;
+  padding: 6px 66px; /* 右侧让出表情按钮的位置 */
   min-height: 56px;
   border-top: 3px solid var(--panel-edge);
   background: #00000099;
@@ -908,4 +909,107 @@
   #stage { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'game drawer'; }
   #side-rail { display: none; }
   .seat-grid { grid-template-columns: repeat(3, 132px); }
+}
+
+/* ============ 对局表情（皇室战争式气泡） ============ */
+
+/* 气泡层：盖在牌桌上但不挡任何点击 */
+#emote-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 28;
+}
+
+/* 右下角表情按钮：自己的小人笑脸，点开表情面板 */
+#emote-fab {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 30;
+  width: 48px;
+  height: 48px;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 3px solid var(--edge);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+#emote-fab:hover { border-color: var(--gold); }
+#emote-fab:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.35); }
+
+/* 表情面板：3×2 差分网格，全部用"你的小人"的脸 */
+#emote-palette {
+  position: absolute;
+  right: 10px;
+  bottom: 66px;
+  z-index: 31;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px;
+  background: var(--panel);
+  border: 3px solid var(--edge);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.4);
+}
+#emote-palette[hidden] { display: none; }
+.emote-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: none;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.emote-opt:hover { border-color: var(--gold); background: var(--panel-2); }
+.emote-opt span {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* 气泡本体：白底黑描边的像素对话泡，弹跳出场、上浮淡出 */
+.emote-bubble {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px 6px;
+  background: #fdf6e3;
+  border: 3px solid #20202a;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.3);
+  animation: emote-pop 0.28s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+.emote-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border: 6px solid transparent;
+  border-top: 9px solid #20202a;
+}
+.emote-bubble .emote-name {
+  font-family: var(--font-pixel);
+  font-size: var(--fs-sm);
+  color: #20202a;
+  line-height: 1;
+}
+.emote-bubble.bye { animation: emote-bye 0.45s ease-in forwards; }
+
+@keyframes emote-pop {
+  0% { transform: scale(0.2); opacity: 0; }
+  70% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes emote-bye {
+  to { transform: translateY(-10px) scale(0.8); opacity: 0; }
 }

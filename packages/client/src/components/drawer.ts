@@ -25,7 +25,7 @@ export function renderHandTypes(root: HTMLElement) {
     <div style="line-height:1.9;font-size:12px">
       ① 牌型排名 → ② 杂牌少者胜（掺水）→ ③ 牌型内最大牌 → ④ 花色（黑桃&gt;梅花&gt;红桃&gt;方片）<br/>
       押注上限 = 你放在出战区的牌数（累计）<br/>
-      防守：牌数 ≤ 托管筹码，本回合锁定；最大也只拿回托管
+      防守：N 张 = 总投入 N 筹码（含底注），本回合锁定；最大也只拿回托管
     </div>
   `;
   root.querySelector('#drawer-close')!.addEventListener('click', (e) => {

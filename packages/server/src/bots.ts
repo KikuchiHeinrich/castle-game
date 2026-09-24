@@ -54,14 +54,13 @@ export function planBotAction(s: GameState, rand: () => number = Math.random): B
     if (seat === undefined) return { kind: 'idle' }; // 机器人都已表态
     const hand = handOf(seat);
     const chips = s.players[seat]!.chips;
-    // 防守的合法约束是「牌数 ≤ 托管 ≤ 筹码」，所以牌数也不能超过筹码；
-    // 早期版本先按牌数取托管再 max 回牌数，筹码不足时会给出托管超过筹码的非法动作
-    const maxCards = Math.min(hand.length, chips);
+    // 防守投入是定量的：N 张 = 总投入 N（含底注），引擎只补 N − 底注 的差额；
+    // 所以"付得起"的牌数上限是 筹码 + 本回合底注
+    const maxCards = Math.min(hand.length, chips + r.ante);
     let action: GameAction;
     if (rand() < 0.25 && maxCards >= 1) {
       const n = Math.min(maxCards, 1 + Math.floor(rand() * 3));
-      const escrow = Math.min(n + Math.floor(rand() * 3), chips);
-      action = { t: 'declare_defense', cardIds: pick(seat, n), escrow };
+      action = { t: 'declare_defense', cardIds: pick(seat, n) };
     } else {
       action = { t: 'pass_defense' };
     }

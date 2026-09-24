@@ -223,9 +223,9 @@ describe('防守', () => {
       [b]: ['♠6', '♣7', '♦4', '♣5', '♠9', '♣J'],
     });
 
-    s = act(s, d, { t: 'declare_defense', cardIds: ['♠A', '♠K', '♠Q', '♠J', '♠10'], escrow: 5 });
+    s = act(s, d, { t: 'declare_defense', cardIds: ['♠A', '♠K', '♠Q', '♠J', '♠10'] }); // 总投入 5（含底注），托管 4
     expect(seatOf(s, d).status).toBe('defended');
-    expect(seatOf(s, d).chips).toBe(START_CHIPS - ANTE - 5);
+    expect(seatOf(s, d).chips).toBe(START_CHIPS - 5); // 底注 1 + 托管 4
     expect(seatOf(s, d).playSegments[0].top!.id).toBe("♠A"); // 亮最大牌
 
     s = act(s, a, { t: 'pass_defense' });
@@ -239,7 +239,7 @@ describe('防守', () => {
     const result = s.round!.result!;
     expect(result.winnerSeat).toBe(a);
     expect(result.potAmount).toBe(3 + 1);
-    expect(result.escrowReturns[String(d)]).toBe(5);
+    expect(result.escrowReturns[String(d)]).toBe(4);
     expect(seatOf(s, d).chips).toBe(START_CHIPS - ANTE);
     expect(seatOf(s, a).chips).toBe(START_CHIPS - ANTE - 1 + 4);
   });
@@ -256,7 +256,7 @@ describe('防守', () => {
       [b]: ['♠6', '♣7', '♦4', '♣5', '♠9', '♣J'],
     });
 
-    s = act(s, declarerSeat, { t: 'declare_defense', cardIds: ['♥2'], escrow: 1 });
+    s = act(s, declarerSeat, { t: 'declare_defense', cardIds: ['♥2', '♦6'] }); // 托管 1（2 − 底注）
     s = act(s, a, { t: 'pass_defense' });
     s = act(s, b, { t: 'pass_defense' });
     s = act(s, a, { t: 'play', cardIds: ['♠A', '♥A'], bet: 2 });
@@ -266,7 +266,7 @@ describe('防守', () => {
     expect(result.winnerSeat).toBe(a);
     expect(result.potAmount).toBe(3 + 2 + 1);
     expect(result.escrowForfeits[String(declarerSeat)]).toBe(1);
-    expect(seatOf(s, declarerSeat).chips).toBe(START_CHIPS - ANTE - 1);
+    expect(seatOf(s, declarerSeat).chips).toBe(START_CHIPS - 2); // 总投入 2 全损
   });
 
   it('全员防守 → 回合作废，底注与托管全退', () => {
@@ -279,9 +279,9 @@ describe('防守', () => {
       [a]: ['♠A', '♥A', '♦K', '♣Q', '♦9', '♥3'],
       [b]: ['♠6', '♣7', '♦4', '♣5', '♠9', '♣J'],
     });
-    s = act(s, declarerSeat, { t: 'declare_defense', cardIds: ['♥2'], escrow: 1 });
-    s = act(s, a, { t: 'declare_defense', cardIds: ['♠A'], escrow: 1 });
-    s = act(s, b, { t: 'declare_defense', cardIds: ['♣7'], escrow: 1 });
+    s = act(s, declarerSeat, { t: 'declare_defense', cardIds: ['♥2'] });
+    s = act(s, a, { t: 'declare_defense', cardIds: ['♠A'] });
+    s = act(s, b, { t: 'declare_defense', cardIds: ['♣7'] });
     expect(s.round!.phase).toBe('settlement');
     expect(s.round!.result!.voidRound).toBe(true);
     for (const p of s.players) expect(p!.chips).toBe(START_CHIPS);
@@ -602,9 +602,11 @@ describe('杂项校验', () => {
     const { s: s2, declarerSeat: d2 } = newGame(3);
     const notDeclarer = nextVoterOf(s2, d2);
     expect(tryAct(s2, notDeclarer, { t: 'force_close_defense' })).toContain('只有宣战者');
-    expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: [], escrow: 0 })).toContain('至少打出一张');
+    expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: [] })).toContain('至少打出一张');
     const hisCard = s2.secret!.hands[notDeclarer][0].id;
-    expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: [hisCard], escrow: 200 })).toContain('超过你的筹码');
+    seatOf(s2, notDeclarer).chips = 0; // 身无分文：2 张（需另付 1）付不起，1 张 ≤ 底注不用再付
+    expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: [hisCard, s2.secret!.hands[notDeclarer][1].id] })).toContain('筹码不够');
+    expect(tryAct(s2, notDeclarer, { t: 'declare_defense', cardIds: [hisCard] })).toBeNull();
   });
 
   it('防守声明后本回合被锁定', () => {
@@ -615,5 +617,71 @@ describe('杂项校验', () => {
     s = act(s, a, { t: 'declare_defense', cardIds: ['♥K', '♣K'], escrow: 2 });
     expect(tryAct(s, a, { t: 'fold' })).toContain('现在不能弃牌'); // 还在防守窗口
     expect(tryAct(s, a, { t: 'declare_defense', cardIds: ['♠5'], escrow: 1 })).toContain('表态');
+  });
+});
+
+describe('付不起底注的玩家在回合开始即淘汰', () => {
+  // ante=3 固定不递增；打完第 1 回合后人为把筹码改成 <3，模拟破产玩家进入下一回合
+  function playOneRound(seed = 7): { s: GameState; winnerSeat: number } {
+    let s = createGameState('TST2', { ante: 3, anteRamp: 0, settlementMs: 5_000, defenseMs: 20_000, turnMs: 60_000 });
+    for (let i = 0; i < 3; i++) {
+      const r = addPlayer(s, `P${i}`);
+      if (!r.ok) throw new Error(r.error);
+    }
+    const g = startGame(s, 0, seed, T0);
+    if (!g.ok) throw new Error(g.error);
+    s = g.state;
+    const declarer = s.round!.declarerSeat;
+    const a = nextVoterOf(s, declarer);
+    const b = nextVoterOf(s, a);
+    replaceHands(s, {
+      [declarer]: ['♠A', '♥A', '♦K', '♣Q', '♦9', '♥3'],
+      [a]: ['♥K', '♣K', '♠5', '♣4', '♦3', '♥2'],
+      [b]: ['♠6', '♣7', '♦4', '♣5', '♠9', '♣J'],
+    });
+    for (const seat of [declarer, a, b]) s = act(s, seat, { t: 'pass_defense' }, T0 + 1000);
+    s = act(s, declarer, { t: 'play', cardIds: ['♠A', '♥A'], bet: 1 }, T0 + 2000);
+    s = act(s, a, { t: 'fold' }, T0 + 3000);
+    s = act(s, b, { t: 'fold' }, T0 + 4000);
+    expect(s.round!.phase).toBe('settlement');
+    return { s, winnerSeat: declarer };
+  }
+
+  it('破产玩家不再被扣底注、不发牌、手牌回牌堆', () => {
+    const { s: s0 } = playOneRound();
+    const broke = (s0.round!.result!.winnerSeat + 1) % 3; // 任选一个输家
+    seatOf(s0, broke).chips = 2; // < 底注 3
+    const t = tick(s0, T0 + 5000 + TIMING.settlementMs + 1);
+    const s = t.state;
+    expect(s.round!.roundNo).toBe(2);
+    expect(seatOf(s, broke).status).toBe('out');
+    expect(seatOf(s, broke).chips).toBe(2); // 不再被扣，更不会变负数
+    expect(seatOf(s, broke).lastAction).toBe('筹码付不起底注');
+    expect(s.round!.pot).toBe(3 * 2); // 奖池只含两名付得起底注的玩家
+    expect(s.secret!.hands[broke]).toHaveLength(0); // 不发牌
+    expect(cardTotal(s)).toBe(52); // 出局者手牌回牌堆，总牌数守恒
+    expect(t.events).toContainEqual({ t: 'eliminated', seat: broke });
+    expect(s.phase).toBe('playing'); // 还有 2 人，游戏继续
+  });
+
+  it('只剩一人付得起底注 → 直接终局，该玩家获胜', () => {
+    const { s: s0, winnerSeat } = playOneRound();
+    const others = [0, 1, 2].filter((i) => i !== winnerSeat);
+    seatOf(s0, others[0]).chips = 1;
+    seatOf(s0, others[1]).chips = 2;
+    const t = tick(s0, T0 + 5000 + TIMING.settlementMs + 1);
+    const s = t.state;
+    expect(s.phase).toBe('gameover');
+    expect(s.winnerSeat).toBe(winnerSeat);
+    expect(t.events.at(-1)).toEqual({ t: 'game_over', winnerSeat });
+  });
+
+  it('全员付不起底注的极端情形 → 破产者中筹码最多者获胜', () => {
+    const { s: s0 } = playOneRound();
+    for (const p of s0.players) if (p) p.chips = 1;
+    seatOf(s0, 2).chips = 2; // 三人都 <3，座位 2 相对最多
+    const t = tick(s0, T0 + 5000 + TIMING.settlementMs + 1);
+    expect(t.state.phase).toBe('gameover');
+    expect(t.state.winnerSeat).toBe(2);
   });
 });

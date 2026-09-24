@@ -14,7 +14,8 @@
     "build:server": "esbuild packages/server/src/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=packages/server/dist/index.js",
     "build:client": "vite build --config packages/client/vite.config.ts",
     "start": "node packages/server/dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "release": "./scripts/build-binaries.sh"
   },
   "dependencies": {
     "express": "^5.1.0",
@@ -25,6 +26,7 @@
     "@types/express": "^5.0.1",
     "@types/node": "^24.0.0",
     "@vp-tw/cjk-web-fonts-fusion-pixel-font": "^0.0.1",
+    "bun": "^1.4.2",
     "concurrently": "^9.1.2",
     "esbuild": "^0.25.0",
     "tsx": "^4.19.3",

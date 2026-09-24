@@ -1,12 +1,12 @@
 import type { Card, PlayerView, PlaySegment, PublicPlayer, ShowdownEntry } from '../../../shared/src/index';
-import { battlefieldJunk, bestHandCards, cardLabel } from '../../../shared/src/index';
+import { battlefieldJunk, bestHandCards, cardLabel, EMOTE_MOODS } from '../../../shared/src/index';
 import { createCard } from '../components/card';
 import { renderHandTypes, toggleDrawer, handLabel } from '../components/drawer';
-import { gameAction, rematch } from '../net/socket';
+import { gameAction, rematch, sendEmote, onEmote } from '../net/socket';
 import { getState, patchUI, toggleSelect } from '../store';
 import { setFxHooks, isBusy, holdingForSettlement, settlementView, noteSettlementView } from '../anim';
 import { renderTutorial, tutorialActive, refreshTutorialGate } from '../components/tutorial';
-import { avatarSVG } from '../components/pixelAvatar';
+import { avatarSVG, EMOTES, type Mood } from '../components/pixelAvatar';
 import { sfx, isMuted, toggleMute } from '../components/sfx';
 
 /**
@@ -38,6 +38,9 @@ let els: {
   stageCards: HTMLElement;
   stageLabel: HTMLElement;
   phaseBlock: HTMLElement;
+  emoteLayer: HTMLElement;
+  emoteFab: HTMLElement;
+  emotePalette: HTMLElement;
 } | null = null;
 
 let countdownRaf = 0;
@@ -174,6 +177,74 @@ export function mountTable(root: HTMLElement) {
     banner,
     tweenPot: () => tweenNumber(els!.potNum, getState().view?.pot ?? 0),
   });
+
+  // ---- 对局表情（皇室战争式）：右下角按钮 → 面板 → 座位上方气泡 ----
+  const emoteLayer = document.createElement('div');
+  emoteLayer.id = 'emote-layer';
+  els.table.appendChild(emoteLayer);
+  els.emoteLayer = emoteLayer;
+
+  const emoteFab = document.createElement('button');
+  emoteFab.id = 'emote-fab';
+  emoteFab.title = '发表情';
+  emoteFab.innerHTML = avatarSVG(getState().view?.you.avatar ?? 'shirley', 'happy', 1);
+  const emotePalette = document.createElement('div');
+  emotePalette.id = 'emote-palette';
+  emotePalette.hidden = true;
+  const togglePalette = () => {
+    if (!emotePalette.hidden) {
+      emotePalette.hidden = true;
+      return;
+    }
+    const me = getState().view?.you;
+    emotePalette.innerHTML = '';
+    for (const e of EMOTES) {
+      const b = document.createElement('button');
+      b.className = 'emote-opt';
+      b.title = e.label;
+      b.innerHTML = avatarSVG(me?.avatar ?? 'shirley', e.mood, 3);
+      const lab = document.createElement('span');
+      lab.textContent = e.label;
+      b.appendChild(lab);
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        sfx.click();
+        emotePalette.hidden = true;
+        void sendEmote(e.mood); // 自己的气泡也由服务端广播回来，众人看到的一致
+      });
+      emotePalette.appendChild(b);
+    }
+    emotePalette.hidden = false;
+  };
+  emoteFab.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    sfx.click();
+    togglePalette();
+  });
+  // 点面板外任意处收起（挂在捕获阶段，先于其他点击处理）
+  root.addEventListener('click', (ev) => {
+    if (!emotePalette.hidden && !emotePalette.contains(ev.target as Node) && ev.target !== emoteFab) {
+      emotePalette.hidden = true;
+    }
+  }, true);
+  els.table.appendChild(emoteFab);
+  els.table.appendChild(emotePalette);
+  els.emoteFab = emoteFab;
+  els.emotePalette = emotePalette;
+
+  onEmote((seat, mood) => showEmoteBubble(seat, mood));
+}
+
+/** 离开牌桌：注销表情监听、清掉在飞的气泡，避免往已卸载的 DOM 里挂节点 */
+export function unmountTable() {
+  onEmote(null);
+  for (const { el, timers } of emoteTimers.values()) {
+    clearTimeout(timers[0]);
+    clearTimeout(timers[1]);
+    el.remove();
+  }
+  emoteTimers.clear();
+  els = null;
 }
 
 // ============ 总渲染入口 ============
@@ -595,6 +666,57 @@ function renderHand(v: PlayerView) {
   }
 }
 
+// ============ 对局表情气泡 ============
+
+/** 每个座位同一时刻只有一个气泡；发送新表情直接顶掉旧的 */
+const emoteTimers = new Map<number, { el: HTMLElement; timers: [number, number] }>();
+
+function showEmoteBubble(seat: number, mood: string) {
+  if (!els) return;
+  if (!(EMOTE_MOODS as readonly string[]).includes(mood)) return; // 防御：非白名单表情不渲染
+  const v = getState().view;
+  if (!v) return;
+  const isYou = v.you.seat === seat;
+  const player = v.players.find((p) => p.seat === seat);
+  if (!isYou && !player) return;
+
+  const old = emoteTimers.get(seat);
+  if (old) {
+    clearTimeout(old.timers[0]);
+    clearTimeout(old.timers[1]);
+    old.el.remove();
+    emoteTimers.delete(seat);
+  }
+
+  const anchor = isYou
+    ? (document.getElementById('own-status') ?? document.getElementById('you-zone'))
+    : els.table.querySelector(`.opp-card[data-seat="${seat}"]`);
+  if (!anchor) return;
+
+  const el = document.createElement('div');
+  el.className = 'emote-bubble';
+  el.innerHTML = `<span class="emote-face">${avatarSVG(player?.avatar ?? v.you.avatar, mood as Mood, 3)}</span><span class="emote-name">${player?.name ?? v.you.name}</span>`;
+
+  // 先入层才能量宽高，再按锚点定位：水平居中于锚点、垂直浮在其上方，越界则贴边。
+  // 自己的气泡锚在 #own-status：那是己方区顶部，再往上就是出战区——
+  // 气泡短暂盖住出战区无妨，但绝不能往下掉进押注坞/手牌区挡操作。
+  els.emoteLayer.appendChild(el);
+  const layerR = els.table.getBoundingClientRect();
+  const aR = anchor.getBoundingClientRect();
+  const bR = el.getBoundingClientRect();
+  const left = Math.max(4, Math.min(layerR.width - bR.width - 4, aR.left - layerR.left + aR.width / 2 - bR.width / 2));
+  const top = Math.max(4, aR.top - layerR.top - bR.height - 10);
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+
+  const hide = window.setTimeout(() => el.classList.add('bye'), 2_400);
+  const drop = window.setTimeout(() => {
+    el.remove();
+    emoteTimers.delete(seat);
+  }, 2_900);
+  emoteTimers.set(seat, { el, timers: [hide, drop] });
+}
+
 function onHandClick(e: Event) {
   const cardEl = (e.target as HTMLElement).closest('.card') as HTMLElement | null;
   if (!cardEl?.dataset.id) return;
@@ -611,7 +733,7 @@ function renderActionBar(v: PlayerView) {
   const la = you.legalActions;
   const ui = getState().ui;
   const selected = ui.selected;
-  const key = JSON.stringify([v.roundPhase, la.roundPhase, la.isYourTurn, la.canDeclareDefense, la.canPassDefense, la.canForceCloseDefense, la.canAgree, you.agreeEnd, you.status, you.defensePassed, v.turnSeat, v.phase, you.chips, ui.escrow, selected.length]);
+  const key = JSON.stringify([v.roundPhase, la.roundPhase, la.isYourTurn, la.canDeclareDefense, la.canPassDefense, la.canForceCloseDefense, la.canAgree, you.agreeEnd, you.status, you.defensePassed, v.turnSeat, v.phase, you.chips, you.betTotal, v.maxBet, selected.length]);
   if (bar.dataset.key === key) return;
   bar.dataset.key = key;
   bar.innerHTML = '';
@@ -632,7 +754,7 @@ function renderActionBar(v: PlayerView) {
     }
     const hint = document.createElement('span');
     hint.className = 'hint';
-    hint.textContent = `防守：牌数 ≤ 托管筹码（筹码 ${you.chips}），选中手牌后点【宣布防守】`;
+    hint.textContent = `防守 N 张 = 总投入 N 筹码（含底注，现有 ${you.chips}），选中手牌后点【宣布防守】`;
     bar.appendChild(hint);
     const pass = document.createElement('button');
     pass.className = 'steel iconed def';
@@ -666,10 +788,21 @@ function renderActionBar(v: PlayerView) {
 
   // 出牌段相关提示（滑块和大按钮在 bet-dock）
   const selN = selected.length;
+  // 已有出战区但押注被别人抬高：必须补到场上最大押注才能继续（同意结束也被锁），
+  // 这是玩家最容易愣住的时刻——不给提示就只会看到一句"等待中…"。
+  if (you.battlefield.length > 0 && you.betTotal < v.maxBet) {
+    const need = v.maxBet - you.betTotal;
+    const warn = document.createElement('span');
+    warn.className = 'hint-warn';
+    warn.textContent = `⚠ 押注被抬高：场上最大 ${v.maxBet}，你已押 ${you.betTotal} —— 须补 ${need}（上方「加注」或选牌「加牌」跟注），否则弃牌`;
+    bar.appendChild(warn);
+  }
   if (you.battlefield.length === 0 && selN === 0) {
     const tip = document.createElement('span');
     tip.className = 'hint';
-    tip.textContent = '① 点选手牌 → ② 上方滑块押注 → ③ 点【出战】';
+    tip.textContent = la.maxBet > 0
+      ? `① 点选手牌 → ② 上方滑块押注（须 ≥ ${la.maxBet}）→ ③ 点【出战】`
+      : '① 点选手牌 → ② 上方滑块押注 → ③ 点【出战】';
     bar.appendChild(tip);
   }
 
@@ -699,7 +832,7 @@ function renderBetDock(v: PlayerView) {
   const selected = ui.selected;
   const selCards = you.hand.filter((c) => selected.includes(c.id));
   const mult = v.settings.chipMultiplier;
-  const key = JSON.stringify([v.roundPhase, la, selected, ui.bet, ui.escrow, v.turnSeat, v.phase]);
+  const key = JSON.stringify([v.roundPhase, la, selected, ui.bet, v.turnSeat, v.phase]);
   if (dock.dataset.key === key) return;
   dock.dataset.key = key;
   dock.innerHTML = '';
@@ -728,7 +861,7 @@ function renderBetDock(v: PlayerView) {
     }
   };
 
-  const mkSlider = (id: string, label: string, min: number, max: number, val: number, field: 'bet' | 'escrow' = 'bet') => {
+  const mkSlider = (id: string, label: string, min: number, max: number, val: number, field: 'bet' = 'bet') => {
     const group = document.createElement('div');
     group.className = 'slider-group';
     group.innerHTML = `<span class="hint">${label}</span><input id="${id}" type="range" min="${min}" max="${max}" value="${val}" /><span class="val">${val}</span>`;
@@ -753,7 +886,7 @@ function renderBetDock(v: PlayerView) {
 
   const commit = (fn: () => Promise<boolean>) =>
     fn().then((ok) => {
-      if (ok) patchUI({ selected: [], bet: null, escrow: null });
+      if (ok) patchUI({ selected: [], bet: null });
     });
 
   // 防守宣言窗口：选牌 → 托管滑块（≥ 牌数、≤ 全部筹码）→ 宣布防守
@@ -764,21 +897,26 @@ function renderBetDock(v: PlayerView) {
       tip.className = 'hint';
       tip.textContent = '先在下方点选手牌作为防守牌（至少 1 张）';
       dock.appendChild(tip);
-    } else if (you.chips >= n) {
-      const min = n;
-      const max = you.chips;
-      const esc = Math.max(min, Math.min(ui.escrow ?? min, max));
-      dock.appendChild(mkSlider('escrow', `托管（${min}~${max}）`, min, max, esc, 'escrow'));
-      dock.appendChild(
-        bigBtn(`宣布防守 ${n} 张`, 'steel iconed def', 'declare_defense', () =>
-          commit(() => gameAction({ t: 'declare_defense', cardIds: [...selected], escrow: Number(dock.querySelector('.val')!.textContent!) })),
-        ),
-      );
     } else {
-      const tip = document.createElement('span');
-      tip.className = 'hint';
-      tip.textContent = `筹码（${you.chips}）少于防守牌数（${n}），少选几张`;
-      dock.appendChild(tip);
+      // 防守投入是定量的：N 张 = 本回合总投入 N 筹码（底注已含在内），
+      // 引擎只补 N − 底注 的差额——没有滑块，选完牌直接宣布。
+      const need = Math.max(0, n - v.ante);
+      if (need <= you.chips) {
+        const tip = document.createElement('span');
+        tip.className = 'hint';
+        tip.textContent = `防守 ${n} 张 = 总投入 ${n} 筹码（含底注 ${v.ante}${need > 0 ? `，还需另付 ${need}` : '，无需再付'}）`;
+        dock.appendChild(tip);
+        dock.appendChild(
+          bigBtn(`宣布防守 ${n} 张`, 'steel iconed def', 'declare_defense', () =>
+            commit(() => gameAction({ t: 'declare_defense', cardIds: [...selected] })),
+          ),
+        );
+      } else {
+        const tip = document.createElement('span');
+        tip.className = 'hint';
+        tip.textContent = `防守 ${n} 张须总投入 ${n}（含底注），你只剩 ${you.chips} 筹码 —— 少选几张`;
+        dock.appendChild(tip);
+      }
     }
     addPreview();
     return;

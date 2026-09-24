@@ -6,7 +6,7 @@ import { connect, savedSession } from './net/socket';
 import { getState, setScreen, subscribe, patchUI } from './store';
 import { mountLobby } from './views/LobbyView';
 import { mountRoom } from './views/RoomView';
-import { mountTable, render } from './views/TableView';
+import { mountTable, render, unmountTable } from './views/TableView';
 import { resetQueue } from './anim';
 
 const app = document.getElementById('app')!;
@@ -42,9 +42,10 @@ function route() {
 
   if (screen !== currentScreen) {
     // 场景切换：重挂载（freshIds 保留：首轮发牌与进入牌桌同时发生，setView 自会维护）
+    if (currentScreen === 'table') unmountTable();
     currentScreen = screen;
     resetQueue();
-    patchUI({ selected: [], bet: null, escrow: null });
+    patchUI({ selected: [], bet: null });
     if (screen === 'lobby') {
       setScreen('lobby');
       mountLobby(app);

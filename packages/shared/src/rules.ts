@@ -233,8 +233,32 @@ function updateMaxBet(s: GameState) {
 // ============ 回合推进 ============
 
 function newRound(s: GameState, now: number, events: GameEvent[]) {
-  const alive = survivors(s);
+  let alive = survivors(s);
   const roundNo = (s.round?.roundNo ?? 0) + 1;
+
+  // ---- 底注（按底注递增逐段变大，加速收敛） ----
+  const ramp = s.settings.anteRamp;
+  const ante = s.settings.ante + (ramp > 0 ? Math.floor((roundNo - 1) / ramp) : 0);
+
+  // 付不起本回合底注的玩家直接淘汰，而不是照扣底注：扣成负数的筹码流入奖池，
+  // 等于让破产玩家凭空造钱补贴赢家（表现为"出局的人还在贡献底注"）。
+  const broke = alive.filter((p) => p.chips < ante);
+  if (broke.length > 0) {
+    for (const p of broke) {
+      p.status = 'out';
+      p.lastAction = '筹码付不起底注';
+      push(s, events, { t: 'eliminated', seat: p.seat });
+    }
+    alive = alive.filter((p) => p.status !== 'out');
+    // 淘汰后只剩 ≤1 人能付底注 → 终局（全员破产的极端情形由筹码最多者胜）
+    if (alive.length <= 1) {
+      const best = (alive.length === 1 ? alive : broke).reduce((a, b) => (b.chips > a.chips ? b : a));
+      s.phase = 'gameover';
+      s.winnerSeat = best.seat;
+      push(s, events, { t: 'game_over', winnerSeat: best.seat });
+      return;
+    }
+  }
 
   // 回合上限：筹码是无漂移的随机游走（底注全额返池，没有抽水），
   // 纯靠淘汰可能几百回合才分胜负，所以给一个硬上限——到点由筹码最多者胜。
@@ -250,6 +274,10 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
   const keptHands = new Map<number, Card[]>();
   for (const p of allPlayers(s)) {
     deck.push(...p.battlefield); // 出战区的牌（含弃牌者的）全部回池
+    if (p.status === 'out') {
+      deck.push(...(s.secret!.hands[p.seat] ?? [])); // 出局者的手牌也回池，不再占用牌库
+      s.secret!.hands[p.seat] = [];
+    }
     p.battlefield = [];
     p.playSegments = [];
     keptHands.set(p.seat, s.secret!.hands[p.seat] ?? []); // 手牌继承
@@ -258,8 +286,11 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
     p.escrow = 0;
     p.defensePassed = false;
     p.agreeEnd = false;
-    p.lastAction = '';
-    if (p.status !== 'out') p.status = 'active';
+    // 出局者保留淘汰原因（筹码归零/付不起底注），其余人清空进入新回合
+    if (p.status !== 'out') {
+      p.status = 'active';
+      p.lastAction = '';
+    }
   }
   const shuffled = shuffle(deck, s.secret!.seed);
   s.secret!.seed = shuffled.seed;
@@ -273,9 +304,6 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
   }
   s.secret!.deck = pool;
 
-  // ---- 底注（按底注递增逐段变大，加速收敛） ----
-  const ramp = s.settings.anteRamp;
-  const ante = s.settings.ante + (ramp > 0 ? Math.floor((roundNo - 1) / ramp) : 0);
   let pot = 0;
   for (const p of alive) {
     p.chips -= ante;
@@ -621,17 +649,21 @@ export function applyAction(s0: GameState, seat: number, action: GameAction, now
       if (p.defensePassed) return err('你已选择不防守');
       const cards = takeFromHand(s, seat, action.cardIds);
       if (!cards || cards.length === 0) return err('防守须至少打出一张手牌');
-      const escrow = Math.floor(action.escrow);
-      if (!Number.isFinite(escrow) || escrow < cards.length) return err('托管筹码不能少于防守牌数');
-      if (escrow > p.chips) return err('托管筹码超过你的筹码');
+      // 防守投入是**定量**的：用 N 张手牌防守 = 本回合总投入 N 筹码（含底注）。
+      // 底注在回合开始已交，这里只补差额；N ≤ 底注时无需再补（不退多交的底注）。
+      const escrow = Math.max(0, cards.length - r.ante);
+      if (escrow > p.chips) {
+        return err(`筹码不够：防守 ${cards.length} 张须总投入 ${cards.length}（含底注 ${r.ante}），还差 ${escrow - p.chips}`);
+      }
       removeFromHand(s, seat, cards);
       p.status = 'defended';
       p.escrow = escrow;
       p.chips -= escrow;
+      // 注意 invested 不含托管：托管在摊牌/作废时单独退还或罚没，混进 invested 会双算
       p.battlefield = cards;
       const defTop = segmentTop(cards);
       p.playSegments = [{ count: cards.length, top: defTop }];
-      p.lastAction = `防守 ${cards.length} 张 · 托管 ${escrow}`;
+      p.lastAction = `防守 ${cards.length} 张 · 投入 ${cards.length}（含底注）`;
       push(s, events, { t: 'defense_declared', seat, cardCount: cards.length, escrow, revealedTop: defTop });
       if (voters(s).every((v) => v.defensePassed)) closeDefenseWindow(s, now, events);
       break;

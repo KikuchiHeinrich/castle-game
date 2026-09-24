@@ -260,7 +260,7 @@ function buildContent(v: PlayerView, step: StepId): StepContent {
           mood: 'surprised',
           lines: [
             '可以嘛，敢用高级玩法。防守者本回合不能再做任何操作，只能看着。',
-            '它的用途是<em>买票观战</em>：亮一张大牌立威。摊牌时你的牌型若是全场最大，只能拿回托管；否则托管进奖池。',
+            '它的用途是<em>买票观战</em>：亮一张大牌立威。防守 N 张 = 本回合总投入 N 筹码（底注已含在内）；摊牌时你的牌型若是全场最大，只收回这笔投入；否则投入进奖池。',
             '奖池永远由进攻方争夺。看好了，我要出手了。',
           ],
           highlight: null,
@@ -282,8 +282,8 @@ function buildContent(v: PlayerView, step: StepId): StepContent {
         title: '开场先问一句：要不要当「防守者」？',
         mood: 'neutral',
         lines: [
-          `本回合的庄家是 <em>${nameOf(v.declarerSeat)}</em>。在任何人出牌之前，每人都可以宣布防守：<em>牌数 ≤ 托管筹码</em>，宣布后本回合被锁死。`,
-          '防守者就算牌型全场最大，也只能拿回托管筹码，赢不了奖池。新手先别碰。',
+          `本回合的庄家是 <em>${nameOf(v.declarerSeat)}</em>。在任何人出牌之前，每人都可以宣布防守：<em>用 N 张手牌 = 总投入 N 筹码（含底注）</em>，宣布后本回合被锁死。`,
+          '防守者就算牌型全场最大，也只能收回自己的投入，赢不了奖池。新手先别碰。',
           '<em>现在：点下方操作栏里的【不防守】。</em>',
         ],
         highlight: '#action-bar',

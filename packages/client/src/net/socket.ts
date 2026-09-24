@@ -62,7 +62,23 @@ export function connect(onView: () => void): Socket {
     enqueueEvent(tagged.ev, gap);
   });
 
+  socket.on('emote', ({ seat, mood }: { seat: number; mood: string }) => {
+    emoteHandler?.(seat, mood);
+  });
+
   return socket;
+}
+
+// ---- 对局表情：广播监听（TableView 挂载时注册） ----
+let emoteHandler: ((seat: number, mood: string) => void) | null = null;
+export function onEmote(fn: ((seat: number, mood: string) => void) | null) {
+  emoteHandler = fn;
+}
+
+export async function sendEmote(mood: string) {
+  const res = await request('emote', { mood });
+  if (!res.ok) toast(res.error ?? '表情发送失败');
+  return res.ok;
 }
 
 /** 带超时的 ack 请求 */

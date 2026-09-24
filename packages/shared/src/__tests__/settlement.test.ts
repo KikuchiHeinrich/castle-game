@@ -147,18 +147,18 @@ describe('结算：防守者的托管去向', () => {
     const o = s.players.find((p) => p && p.seat !== d)!.seat;
     setHands(s, { [d]: ['♠A', '♦A'], [o]: ['♣2', '♣3'] });
 
-    s = act(s, d, { t: 'declare_defense', cardIds: ['♠A', '♦A'], escrow: 4 });
+    s = act(s, d, { t: 'declare_defense', cardIds: ['♠A', '♦A'] }); // 2 张 = 总投入 2（含底注），托管 1
     s = act(s, o, { t: 'pass_defense' });
     s = act(s, o, { t: 'play', cardIds: ['♣2', '♣3'], bet: 2 });
 
     const r = s.round!.result!;
     expect(r.winnerSeat).toBe(o); // 奖池只归非防守者
-    expect(r.escrowReturns[String(d)]).toBe(4); // 全场最大 → 收回托管
+    expect(r.escrowReturns[String(d)]).toBe(1); // 全场最大 → 收回托管（2 − 底注 1）
     expect(r.escrowForfeits[String(d)]).toBeUndefined();
     // 奖池 = 底注 1×2 + 进攻方押 2；防守方的托管不在里面
     expect(r.potAmount).toBe(4);
 
-    expect(s.players[d]!.chips).toBe(START - 1 - 4 + 4); // 只损失底注
+    expect(s.players[d]!.chips).toBe(START - 2 + 1); // 总投入 2（底注 1 + 托管 1），收回托管 1
     expect(s.players[o]!.chips).toBe(START - 1 - 2 + 4);
     expect(r.chipDeltas[String(d)]).toBe(-1);
     expect(r.chipDeltas[String(o)]).toBe(1);
@@ -171,19 +171,19 @@ describe('结算：防守者的托管去向', () => {
     const o = s.players.find((p) => p && p.seat !== d)!.seat;
     setHands(s, { [d]: ['♣2', '♣3'], [o]: ['♠A', '♦A'] });
 
-    s = act(s, d, { t: 'declare_defense', cardIds: ['♣2', '♣3'], escrow: 4 });
+    s = act(s, d, { t: 'declare_defense', cardIds: ['♣2', '♣3'] }); // 托管 1（2 − 底注）
     s = act(s, o, { t: 'pass_defense' });
     s = act(s, o, { t: 'play', cardIds: ['♠A', '♦A'], bet: 2 });
 
     const r = s.round!.result!;
     expect(r.winnerSeat).toBe(o);
     expect(r.escrowReturns[String(d)]).toBeUndefined();
-    expect(r.escrowForfeits[String(d)]).toBe(4);
-    // 奖池 = 底注 2 + 进攻方押 2 + 罚没的托管 4
-    expect(r.potAmount).toBe(8);
-    expect(s.players[d]!.chips).toBe(START - 1 - 4); // 底注 + 托管都损失了
-    expect(r.chipDeltas[String(d)]).toBe(-5);
-    expect(r.chipDeltas[String(o)]).toBe(5);
+    expect(r.escrowForfeits[String(d)]).toBe(1);
+    // 奖池 = 底注 2 + 进攻方押 2 + 罚没的托管 1
+    expect(r.potAmount).toBe(5);
+    expect(s.players[d]!.chips).toBe(START - 2); // 总投入 2 全部损失
+    expect(r.chipDeltas[String(d)]).toBe(-2);
+    expect(r.chipDeltas[String(o)]).toBe(2);
     expect(held(s)).toBe(START * 2);
   });
 });
@@ -286,15 +286,15 @@ describe('结算：回合作废', () => {
     let s = newGame(2);
     const d = s.round!.declarerSeat;
     const o = s.players.find((p) => p && p.seat !== d)!.seat;
-    s = act(s, d, { t: 'declare_defense', cardIds: s.secret!.hands[d].slice(0, 2).map((c) => c.id), escrow: 3 });
-    s = act(s, o, { t: 'declare_defense', cardIds: s.secret!.hands[o].slice(0, 2).map((c) => c.id), escrow: 3 });
+    s = act(s, d, { t: 'declare_defense', cardIds: s.secret!.hands[d].slice(0, 2).map((c) => c.id) });
+    s = act(s, o, { t: 'declare_defense', cardIds: s.secret!.hands[o].slice(0, 2).map((c) => c.id) });
 
     const r = s.round!.result!;
     expect(r.voidRound).toBe(true);
     expect(r.winnerSeat).toBeNull();
     expect(r.anteRefunds[String(d)]).toBe(1);
-    expect(r.escrowReturns[String(d)]).toBe(3);
-    expect(r.escrowReturns[String(o)]).toBe(3);
+    expect(r.escrowReturns[String(d)]).toBe(1); // 2 张 − 底注 1
+    expect(r.escrowReturns[String(o)]).toBe(1);
     expect(s.players[d]!.chips).toBe(START);
     expect(s.players[o]!.chips).toBe(START);
     expect(r.chipDeltas[String(d)]).toBe(0);

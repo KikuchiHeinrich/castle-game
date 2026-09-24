@@ -1,10 +1,22 @@
 /**
  * 8bit 小人 v3 —— 元气骑士风：24×30 高分辨率、头身比 2:1、自动描边、
  * 三阶发色 + 高光、四格大眼带白色眼神光。程序化绘制保证对称。
- * 6 名角色（教官雪莉 + 5 名可选），4 种表情。
+ * 6 名角色（教官雪莉 + 5 名可选），7 种表情（基础 4 种 + 表情气泡用 3 种）。
  */
 
-export type Mood = 'happy' | 'neutral' | 'serious' | 'surprised';
+export type Mood = 'happy' | 'neutral' | 'serious' | 'surprised' | 'laugh' | 'angry' | 'cry';
+
+/** 对局表情面板：游戏内"发送表情"用的差分集（顺序即面板展示顺序） */
+export const EMOTES: { mood: Mood; label: string }[] = [
+  { mood: 'happy', label: '开心' },
+  { mood: 'laugh', label: '大笑' },
+  { mood: 'surprised', label: '惊讶' },
+  { mood: 'angry', label: '生气' },
+  { mood: 'cry', label: '委屈' },
+  { mood: 'serious', label: '严肃' },
+];
+
+export const EMOTE_MOODS: Mood[] = EMOTES.map((e) => e.mood);
 
 export interface AvatarChar {
   id: string;
@@ -146,6 +158,32 @@ function buildGrid(c: AvatarChar, mood: Mood): Cell[][] {
     rect(9, 10, 8, 9, 'e');
     rect(9, 10, 13, 14, 'e');
     rect(14, 16, 11, 12, 'K');
+  } else if (mood === 'laugh') {
+    // 大笑：眯眯眼 + 张开的嘴（露出深色口腔）
+    rect(10, 13, 8, 11, 'S');
+    rect(10, 13, 13, 16, 'S');
+    rect(10, 11, 8, 11, 'E');
+    rect(10, 11, 13, 16, 'F');
+    rect(15, 16, 11, 13, 'K');
+    rect(15, 16, 12, 12, 'W');
+  } else if (mood === 'angry') {
+    // 生气：八字怒眉压眼 + 小撇嘴（嘴角向下）
+    sym(9, 10, 8, 9, 'h');
+    sym(10, 11, 10, 11, 'h');
+    rect(15, 16, 11, 12, 'K');
+    rect(16, 17, 10, 11, 'K');
+    rect(16, 17, 12, 13, 'K');
+  } else if (mood === 'cry') {
+    // 委屈：半闭眼 + 脸颊挂泪 + 撇嘴
+    rect(12, 13, 8, 11, 'S');
+    rect(12, 13, 13, 16, 'S');
+    rect(11, 12, 8, 9, 'e');
+    rect(11, 12, 13, 14, 'e');
+    rect(13, 15, 7, 8, 'T');
+    rect(13, 15, 16, 17, 'T');
+    rect(15, 16, 11, 12, 'K');
+    rect(16, 17, 10, 11, 'K');
+    rect(16, 17, 12, 13, 'K');
   }
 
   // ---- 自动描边：空格四邻有内容 → 描边 ----
@@ -172,6 +210,8 @@ function cellColor(ch: Cell, c: AvatarChar): string | undefined {
     case 'F': return c.eyeR;
     case 'e': return '#ffffff';
     case 'm': return '#a04a42';
+    case 'W': return '#7a2a26'; // 张嘴的口腔
+    case 'T': return '#7ac8f0'; // 泪滴
     case 'N': return c.coat;
     case 'n': return c.coatShade;
     case 'U': return c.trim;
