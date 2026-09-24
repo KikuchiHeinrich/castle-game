@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildServer } from './host';
 
-const assetRoot = path.join(import.meta.dir, 'embed', 'dist');
+const assetRoot = path.join(import.meta.dirname, 'embed', 'dist');
 
 function loadAssets(root: string): Map<string, Buffer> {
   const assets = new Map<string, Buffer>();

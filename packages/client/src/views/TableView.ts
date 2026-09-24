@@ -38,9 +38,10 @@ let els: {
   stageCards: HTMLElement;
   stageLabel: HTMLElement;
   phaseBlock: HTMLElement;
-  emoteLayer: HTMLElement;
-  emoteFab: HTMLElement;
-  emotePalette: HTMLElement;
+  // 这三个是建好 DOM 之后再挂上去的（见 mountTable 里的表情区），所以是可选的
+  emoteLayer?: HTMLElement;
+  emoteFab?: HTMLElement;
+  emotePalette?: HTMLElement;
 } | null = null;
 
 let countdownRaf = 0;
@@ -136,7 +137,7 @@ export function mountTable(root: HTMLElement) {
     stageLabel: root.querySelector('#showdown-stage .stage-label')!,
     phaseBlock: root.querySelector('#phase-block')!,
   };
-  renderHandTypes(els.drawer);
+  renderHandTypes(els.drawer!);
   root.querySelector('#btn-types')!.addEventListener('click', () => {
     sfx.click();
     toggleDrawer();
@@ -152,7 +153,7 @@ export function mountTable(root: HTMLElement) {
     sessionStorage.clear();
     location.href = '/';
   });
-  els.hand.addEventListener('click', onHandClick);
+  els.hand!.addEventListener('click', onHandClick);
 
   setFxHooks({
     renderAll: () => render(),
@@ -700,7 +701,7 @@ function showEmoteBubble(seat: number, mood: string) {
   // 先入层才能量宽高，再按锚点定位：水平居中于锚点、垂直浮在其上方，越界则贴边。
   // 自己的气泡锚在 #own-status：那是己方区顶部，再往上就是出战区——
   // 气泡短暂盖住出战区无妨，但绝不能往下掉进押注坞/手牌区挡操作。
-  els.emoteLayer.appendChild(el);
+  els.emoteLayer?.appendChild(el);
   const layerR = els.table.getBoundingClientRect();
   const aR = anchor.getBoundingClientRect();
   const bR = el.getBoundingClientRect();

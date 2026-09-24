@@ -614,9 +614,9 @@ describe('杂项校验', () => {
     let s = s0;
     const a = nextVoterOf(s0, declarerSeat);
     replaceHands(s0, { [a]: ['♥K', '♣K', '♠5', '♣4', '♦3', '♥2'] });
-    s = act(s, a, { t: 'declare_defense', cardIds: ['♥K', '♣K'], escrow: 2 });
+    s = act(s, a, { t: 'declare_defense', cardIds: ['♥K', '♣K'] });
     expect(tryAct(s, a, { t: 'fold' })).toContain('现在不能弃牌'); // 还在防守窗口
-    expect(tryAct(s, a, { t: 'declare_defense', cardIds: ['♠5'], escrow: 1 })).toContain('表态');
+    expect(tryAct(s, a, { t: 'declare_defense', cardIds: ['♠5'] })).toContain('表态');
   });
 });
 
@@ -649,8 +649,8 @@ describe('付不起底注的玩家在回合开始即淘汰', () => {
 
   it('破产玩家不再被扣底注、不发牌、手牌回牌堆', () => {
     const { s: s0 } = playOneRound();
-    const broke = (s0.round!.result!.winnerSeat + 1) % 3; // 任选一个输家
-    seatOf(s0, broke).chips = 2; // < 底注 3
+    const broke = (s0.round!.result!.winnerSeat! + 1) % 3; // 任选一个输家
+    seatOf(s0, broke)!.chips = 2; // < 底注 3
     const t = tick(s0, T0 + 5000 + TIMING.settlementMs + 1);
     const s = t.state;
     expect(s.round!.roundNo).toBe(2);
