@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>城堡 · 响应式验收容器</title>
+<!-- 本页只是验收容器：iframe 真实加载生产首页 `/`，不复制任何游戏实现、不伪造状态。
+     打开方式（Vite 的 /@fs 直出仓库内文件）：
+       http://<vite-host>/@fs/Users/xuyilin/Desktop/Projects/castle-game/docs/ui-rebuild/acceptance/responsive.html
+     这一步用于在官方 viewport 能力没有实际生效时，验证 CSS 媒体查询。 -->
+<style>
+  :root{--ink:#e8e3dc;--bg:#14121c;--panel:#1e1b29;--line:#3a3550;--gold:#dfb569;--quiet:#9a94ad;--bad:#c8564e;--ok:#8fd9a5}
+  *{box-sizing:border-box}
+  html,body{/* 不裁剪溢出：iframe 比窗口宽/高时由外层文档滚动看全 */}
+  body{margin:0;background:var(--bg);color:var(--ink);padding:0 0 40px;
+       font:14px/1.6 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .head{padding:20px 24px 0}
+  h1{font-size:20px;margin:0 0 2px}
+  p.hint{margin:6px 0 0;color:var(--quiet);font-size:12px;max-width:78em}
+  code{color:var(--gold);font-size:12px}
+  .bar{position:sticky;top:0;z-index:3;display:flex;gap:12px;flex-wrap:wrap;align-items:center;
+       margin:14px 0 0;padding:12px 24px;background:var(--panel);
+       border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .bar label{font-size:12px;color:var(--quiet)}
+  select,button{font:inherit;padding:6px 12px;background:#2b2740;color:var(--ink);
+                border:1px solid var(--line);border-radius:6px}
+  select{cursor:pointer}
+  button{cursor:pointer}
+  button:hover{background:#383253}
+  .readout{font-size:12px;color:var(--quiet);font-variant-numeric:tabular-nums}
+  .readout b{color:var(--ink);font-weight:600}
+  .readout .ok{color:var(--ok)}
+  .readout .bad{color:var(--bad)}
+  .stage{display:inline-block;padding:16px 24px 0}
+  .frame-label{font-size:11px;color:var(--quiet);font-variant-numeric:tabular-nums;margin-bottom:6px}
+  .frame-wrap{display:inline-block;border:1px solid var(--line);background:#000;padding:0}
+  /* 关键：属性 width/height 与 CSS 宽度都写成目标像素，content-box 下 iframe 内部 innerWidth === 目标宽度 */
+  #game-preview{display:block;border:0;background:#000}
+</style>
+</head>
+<body>
+<div class="head">
+  <h1>城堡 · 响应式验收容器</h1>
+  <p class="hint">下面 <code>&lt;iframe&gt;</code> 直接用 <code>src="/"</code> 加载真实游戏首页，容器不注入任何样式、不改写页面状态。
+  切换尺寸只改 iframe 的 CSS 与 <code>width</code>/<code>height</code> 属性，因此 iframe 内部的 <code>innerWidth</code> 等于所选宽度，
+  生产样式表里的媒体查询按真实窗口宽度生效。<code>320/360</code> 命中 <code>max-width:760px</code> 与 <code>max-width:400px</code>，
+  <code>1280×720</code> 命中 <code>min-width:900px and min-height:620px</code>，<code>1280×600</code> 只命中宽度那条。
+  窗口比 iframe 小时，向外层页面水平 / 垂直滚动即可看全整屏。</p>
+</div>
+
+<div class="bar">
+  <label for="viewport-size">窗口尺寸</label>
+  <select id="viewport-size">
+    <option value="320x568">320 × 568</option>
+    <option value="360x640">360 × 640</option>
+    <option value="1280x720">1280 × 720</option>
+    <option value="1280x600">1280 × 600</option>
+  </select>
+  <button id="reload-frame" type="button">重新载入</button>
+  <span class="readout" id="readout">读取中…</span>
+</div>
+
+<div class="stage">
+  <div class="frame-label" id="frame-label">iframe 320 × 568</div>
+  <div class="frame-wrap">
+    <iframe id="game-preview" src="/" width="320" height="568" title="游戏首页"></iframe>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SIZES = {
+    '320x568': { width: 320, height: 568, label: '320 × 568' },
+    '360x640': { width: 360, height: 640, label: '360 × 640' },
+    '1280x720': { width: 1280, height: 720, label: '1280 × 720' },
+    '1280x600': { width: 1280, height: 600, label: '1280 × 600' }
+  };
+  var DEFAULT_SIZE = '320x568';
+
+  // 生产断点（见 packages/client/src/styles/table.css / screens.css），用于读数时确认命中了哪条
+  var BREAKPOINTS = [
+    { key: 'phone', label: 'max-width:760px', query: '(max-width: 760px)' },
+    { key: 'phoneNarrow', label: 'max-width:400px', query: '(max-width: 400px)' },
+    { key: 'desktop', label: 'min-width:900px+min-height:620px', query: '(min-width: 900px) and (min-height: 620px)' },
+    { key: 'phoneShort', label: 'max-width:760px+max-height:520px', query: '(max-width: 760px) and (max-height: 520px)' }
+  ];
+
+  function resolveViewport(value, sizes) {
+    var table = sizes || SIZES;
+    return table[value] || table[DEFAULT_SIZE];
+  }
+
+  // 同时写属性与 CSS：属性给出内容盒尺寸，CSS 覆盖样式表/内联样式带来的偏差
+  function applyViewport(frame, size) {
+    frame.setAttribute('width', String(size.width));
+    frame.setAttribute('height', String(size.height));
+    frame.style.width = size.width + 'px';
+    frame.style.height = size.height + 'px';
+    frame.setAttribute('data-viewport', size.width + 'x' + size.height);
+  }
+
+  function readFrame(frame) {
+    var state = { size: null, innerWidth: null, innerHeight: null, docWidth: null, docHeight: null };
+    try {
+      var win = frame.contentWindow;
+      var doc = win.document;
+      state.innerWidth = win.innerWidth;
+      state.innerHeight = win.innerHeight;
+      state.docWidth = doc.documentElement.clientWidth;
+      state.docHeight = doc.documentElement.clientHeight;
+      state.breakpoints = BREAKPOINTS.map(function (bp) {
+        return bp.label + (win.matchMedia(bp.query).matches ? '✓' : '✗');
+      });
+      state.ok = true;
+    } catch (err) {
+      state.ok = false;
+      state.error = String(err && err.message ? err.message : err);
+    }
+    return state;
+  }
+
+  function reloadFrame(frame) {
+    try {
+      frame.contentWindow.location.reload();
+    } catch (err) {
+      frame.setAttribute('src', frame.getAttribute('src') || '/');
+    }
+  }
+
+  function boot() {
+    var select = document.getElementById('viewport-size');
+    var frame = document.getElementById('game-preview');
+    var readout = document.getElementById('readout');
+    var label = document.getElementById('frame-label');
+    var reloadButton = document.getElementById('reload-frame');
+    if (!select || !frame || !readout || !label) { return; }
+
+    function paint() {
+      var state = readFrame(frame);
+      var width = frame.clientWidth;
+      var height = frame.clientHeight;
+      label.textContent = 'iframe ' + width + ' × ' + height;
+
+      if (!state.ok) {
+        readout.textContent = '无法读取 iframe（不同源？）：' + state.error;
+        readout.className = 'readout bad';
+        return;
+      }
+      var exact = state.innerWidth === width && state.innerHeight === height;
+      readout.className = 'readout' + (exact ? '' : ' bad');
+      readout.innerHTML = '当前 <b>' + width + ' × ' + height + '</b>' +
+        ' · innerWidth <b>' + state.innerWidth + '</b> / innerHeight <b>' + state.innerHeight + '</b>' +
+        ' · 断点 ' + (state.breakpoints || []).join(' ') +
+        ' · 外层窗口 <b>' + window.innerWidth + ' × ' + window.innerHeight + '</b>' +
+        (exact ? ' <span class="ok">尺寸一致</span>' : ' <span class="bad">innerWidth 与设定宽度不一致</span>');
+    }
+
+    function selectSize(value) {
+      var size = resolveViewport(value);
+      applyViewport(frame, size);
+      paint();
+      return size;
+    }
+
+    select.addEventListener('change', function () {
+      selectSize(select.value);
+    });
+    reloadButton.addEventListener('click', function () {
+      reloadFrame(frame);
+    });
+    frame.addEventListener('load', paint);
+    window.addEventListener('resize', paint);
+
+    selectSize(select.value || DEFAULT_SIZE);
+    if (document.readyState === 'complete') { paint(); }
+  }
+
+  // 便于外部脚本直接驱动尺寸（同源验收脚本用）
+  window.__responsiveHarness = {
+    SIZES: SIZES,
+    DEFAULT_SIZE: DEFAULT_SIZE,
+    BREAKPOINTS: BREAKPOINTS,
+    resolveViewport: resolveViewport,
+    applyViewport: applyViewport,
+    readFrame: readFrame,
+    reloadFrame: reloadFrame
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+}());
+</script>
+</body>
+</html>

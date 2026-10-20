@@ -119,6 +119,67 @@ describe('服务器集成', () => {
     expect(result.entries).toHaveLength(2);
     expect(result.winnerSeat).not.toBeNull();
     expect(state().round!.pot).toBe(0);
+    expect(state().round!.deadlineAt).toBe(0);
+    expect(room().timer).toBeNull();
+  });
+
+  it('结算不挂自动计时，断线重连保留本人的准备快照', async () => {
+    const a = await connect(port);
+    const b = await connect(port);
+    const c = await connect(port);
+    const clients = new Map<number, ClientSocket>();
+
+    const created = await emitAck<{ ok: boolean; roomCode: string; seat: number; token: string }>(a, 'room:create', { name: '准备甲' });
+    expect(created.ok).toBe(true);
+    const code = created.roomCode;
+    clients.set(created.seat, a);
+    const joinedB = await emitAck<{ ok: boolean; seat: number; token: string }>(b, 'room:join', { roomCode: code, name: '准备乙' });
+    const joinedC = await emitAck<{ ok: boolean; seat: number; token: string }>(c, 'room:join', { roomCode: code, name: '准备丙' });
+    expect(joinedB.ok).toBe(true);
+    expect(joinedC.ok).toBe(true);
+    clients.set(joinedB.seat, b);
+    clients.set(joinedC.seat, c);
+    expect((await emitAck<{ ok: boolean }>(a, 'game:start', {})).ok).toBe(true);
+
+    const room = () => server.rooms.get(code)!;
+    const act = async (seat: number, action: GameAction) => {
+      const res = await emitAck<{ ok: boolean; error?: string }>(clients.get(seat)!, 'game:action', { action });
+      if (!res.ok) throw new Error(`seat${seat} ${action.t}: ${res.error}`);
+    };
+    for (const p of room().state.players) {
+      if (p?.status === 'active' && !p.defensePassed) await act(p.seat, { t: 'pass_defense' });
+    }
+    for (let i = 0; i < 3; i++) {
+      const seat = room().state.round!.turnSeat;
+      const hand = room().state.secret!.hands[seat];
+      await act(seat, { t: 'play', cardIds: [hand[0].id], bet: 0 });
+    }
+    for (let i = 0; i < 3; i++) {
+      await act(room().state.round!.turnSeat, { t: 'agree_end', agree: true });
+    }
+    expect(room().state.round!.phase).toBe('settlement');
+    expect(room().state.round!.deadlineAt).toBe(0);
+    expect(room().timer).toBeNull();
+
+    const readySeat = joinedB.seat;
+    await act(readySeat, { t: 'ready_next', agree: true });
+    expect(room().state.players[readySeat]!.nextReady).toBe(true);
+    expect(room().state.round!.phase).toBe('settlement');
+
+    b.disconnect();
+    await waitFor(() => (room().state.players[readySeat]!.connected === false ? true : undefined));
+    const b2 = await connect(port);
+    const rejoin = await emitAck<{ ok: boolean; view: PlayerView }>(b2, 'room:rejoin', { roomCode: code, token: joinedB.token });
+    expect(rejoin.ok).toBe(true);
+    expect(rejoin.view.you.nextReady).toBe(true);
+    expect(rejoin.view.you.legalActions.canReadyNext).toBe(true);
+    expect(rejoin.view.players.find((p) => p.seat === readySeat)!.nextReady).toBe(true);
+    expect(rejoin.view.roundPhase).toBe('settlement');
+    expect(rejoin.view.result).not.toBeNull();
+
+    b2.disconnect();
+    a.disconnect();
+    c.disconnect();
   });
 
   it('隐私：c0 的推送里从不含对手的私有手牌', async () => {

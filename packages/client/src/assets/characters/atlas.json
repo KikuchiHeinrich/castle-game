@@ -1,0 +1,124 @@
+{
+  "cell": 48,
+  "gap": 2,
+  "pitch": 50,
+  "columns": 28,
+  "rows": 6,
+  "foot": {
+    "x": 24,
+    "y": 44
+  },
+  "release": {
+    "idle": null,
+    "play": {
+      "x": 40,
+      "y": 30.5
+    },
+    "defend": {
+      "x": 29,
+      "y": 31.5
+    },
+    "fold": {
+      "x": 36,
+      "y": 35.5
+    },
+    "win": null
+  },
+  "characters": [
+    {
+      "id": "shirley",
+      "name": "雪莉",
+      "row": 0
+    },
+    {
+      "id": "yan",
+      "name": "小焰",
+      "row": 1
+    },
+    {
+      "id": "cang",
+      "name": "小苍",
+      "row": 2
+    },
+    {
+      "id": "mo",
+      "name": "小墨",
+      "row": 3
+    },
+    {
+      "id": "sen",
+      "name": "小森",
+      "row": 4
+    },
+    {
+      "id": "jin",
+      "name": "小金",
+      "row": 5
+    }
+  ],
+  "motions": {
+    "idle": {
+      "start": 0,
+      "durations": [
+        650,
+        430,
+        570,
+        610,
+        480,
+        620
+      ],
+      "loop": true,
+      "releaseMs": null
+    },
+    "play": {
+      "start": 6,
+      "durations": [
+        90,
+        60,
+        70,
+        80,
+        90,
+        90,
+        70,
+        70
+      ],
+      "loop": false,
+      "releaseMs": 150
+    },
+    "defend": {
+      "start": 14,
+      "durations": [
+        110,
+        140,
+        170,
+        150
+      ],
+      "loop": false,
+      "releaseMs": 110
+    },
+    "fold": {
+      "start": 18,
+      "durations": [
+        100,
+        150,
+        160,
+        150
+      ],
+      "loop": false,
+      "releaseMs": 100
+    },
+    "win": {
+      "start": 22,
+      "durations": [
+        100,
+        100,
+        140,
+        140,
+        120,
+        120
+      ],
+      "loop": false,
+      "releaseMs": null
+    }
+  }
+}

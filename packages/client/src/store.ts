@@ -7,6 +7,7 @@ export interface UIState {
   selected: string[]; // 选中的手牌 id
   bet: number | null; // 押注滑块当前值
   escrow: number | null; // 防守托管输入
+  connected: boolean; // 与服务端的实时连接状态
   name: string;
   joinCode: string;
   toast: { msg: string; kind: 'err' | 'ok' } | null;
@@ -27,6 +28,7 @@ const store: Store = {
     selected: [],
     bet: null,
     escrow: null,
+    connected: false,
     name: localStorage.getItem('castle.name') ?? '',
     joinCode: new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '',
     toast: null,

@@ -40,7 +40,10 @@ export class BotDriver {
       }
       return;
     }
-    const delay = 600 + this.rand() * 1400;
+    // 结算准备放慢，给所有玩家留出读完摊牌与结算结果的时间。
+    const delay = s.round?.phase === 'settlement'
+      ? 2_500 + this.rand() * 2_000
+      : 600 + this.rand() * 1_400;
     const t = setTimeout(() => {
       this.timers.delete(room.code);
       this.actOnce(room);
@@ -63,7 +66,10 @@ export class BotDriver {
 
     if (!r) return;
 
-    if (r.phase === 'defense_window') {
+    if (r.phase === 'settlement') {
+      seat = bots.find((b) => !s.players[b]?.nextReady) ?? -1;
+      if (seat >= 0) action = { t: 'ready_next', agree: true };
+    } else if (r.phase === 'defense_window') {
       seat = bots.find((b) => s.players[b]?.status === 'active' && !s.players[b]?.defensePassed) ?? -1;
       if (seat < 0) return;
       const hand = s.secret!.hands[seat];

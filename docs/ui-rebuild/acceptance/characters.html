@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>城堡 · 角色验收页</title>
+<!-- 直接引用正式样式（sprite.css）与正式图集；逻辑全部来自打包后的生产模块。
+     请通过 http 打开（仓库根目录的静态服务），file:// 下浏览器会拦住模块与 JSON。 -->
+<link rel="stylesheet" href="../../../packages/client/src/styles/sprite.css">
+<style>
+  :root{--ink:#e8e3dc;--bg:#14121c;--panel:#1e1b29;--line:#3a3550;--gold:#dfb569;--quiet:#9a94ad;--bad:#c8564e}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);padding:24px 28px 64px;
+       font:14px/1.6 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  h1{font-size:20px;margin:0 0 2px}
+  h2{font-size:15px;margin:34px 0 6px;color:var(--gold)}
+  p.hint{margin:0 0 14px;color:var(--quiet);font-size:12px;max-width:72em}
+  code{color:var(--gold);font-size:12px}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 0;padding:12px 14px;
+       background:var(--panel);border:1px solid var(--line);border-radius:8px}
+  .bar b{font-weight:600;color:var(--quiet);font-size:12px;margin-right:2px}
+  button{font:inherit;padding:6px 12px;background:#2b2740;color:var(--ink);
+         border:1px solid var(--line);border-radius:6px;cursor:pointer}
+  button:hover{background:#383253}
+  button.on{background:#5c2530;border-color:#8a3a45}
+  .row{display:flex;gap:20px;flex-wrap:wrap}
+  .seat{padding:14px 12px 10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;text-align:center}
+  .seat .nm{font-size:12px;color:#cfc9dd;margin-bottom:10px}
+  .seat .nm small{color:var(--quiet)}
+  .seat .acts{display:flex;gap:4px;justify-content:center;margin-top:10px;flex-wrap:wrap;max-width:150px}
+  .seat .acts button{padding:3px 7px;font-size:12px}
+  .seat .probe{margin-top:6px;font-size:10px;color:var(--quiet);font-variant-numeric:tabular-nums}
+  .stage{position:relative;display:inline-block}
+  .anchor{position:absolute;pointer-events:none}
+  .stage[data-anchors="on"] .anchor.foot{display:block}
+  .stage[data-anchors="on"] .anchor.rel{display:block}
+  .anchor.foot{display:none;border-top:1px dashed rgba(223,181,105,.6)}
+  .anchor.rel{display:none;width:9px;height:9px;margin:-5px 0 0 -5px;
+              border:1px solid rgba(110,200,255,.9);border-radius:50%}
+  .frames{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+  .fr{text-align:center;font-size:9px;color:var(--quiet);line-height:1.35}
+  .fr i{display:block;width:48px;height:48px;margin-bottom:2px;border:1px solid #2b2740;
+        background-image:var(--atlas);background-repeat:no-repeat;
+        background-size:var(--atlas-w) var(--atlas-h);image-rendering:pixelated}
+  .fr.m-idle i{border-color:#4b6a8a}.fr.m-play i{border-color:#a34a4a}
+  .fr.m-defend i{border-color:#8a6a3a}.fr.m-fold i{border-color:#5a5a5a}
+  .fr.m-win i{border-color:#b8913f}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--quiet);margin-bottom:10px}
+  .legend span::before{content:'';display:inline-block;width:9px;height:9px;margin-right:4px;border-radius:2px;vertical-align:-1px}
+  .legend .m-idle::before{background:#4b6a8a}.legend .m-play::before{background:#a34a4a}
+  .legend .m-defend::before{background:#8a6a3a}.legend .m-fold::before{background:#5a5a5a}
+  .legend .m-win::before{background:#b8913f}
+  .ruler{position:relative;height:14px;border-top:1px solid var(--line);margin-top:6px;width:100%}
+  .ruler b{position:absolute;top:2px;font-size:10px;color:var(--quiet);font-weight:400;transform:translateX(-50%)}
+  table{border-collapse:collapse;font-size:12px;background:var(--panel)}
+  th,td{border:1px solid var(--line);padding:4px 10px;text-align:left}
+  th{color:var(--gold);font-weight:600}
+  #selfcheck-summary{display:inline-block;margin-left:8px;font-size:13px;padding:1px 8px;border-radius:4px}
+  #selfcheck-summary.ok{background:#2c5238;color:#bdf0cd}
+  #selfcheck-summary.bad{background:#5c2530;color:#f2c3c0}
+  .ck{display:flex;gap:8px;align-items:baseline;padding:5px 8px;margin-bottom:4px;
+      background:var(--panel);border-left:3px solid var(--line);border-radius:4px;font-size:13px}
+  .ck.ok{border-left-color:#4f9a68}
+  .ck.bad{border-left-color:var(--bad)}
+  .ck b{font-size:11px;letter-spacing:1px}
+  .ck.ok b{color:#8fd9a5}
+  .ck.bad b{color:var(--bad)}
+  .ck small{color:var(--quiet);font-size:11px}
+</style>
+</head>
+<body>
+<h1>城堡 · 角色验收页</h1>
+<p class="hint">本页不复制任何美术数据：六人呼吸、逐人出牌、连续出牌、逐帧查看、慢放与减弱动态，
+全部走 <code>packages/client/src/art/characters.ts</code> 与 <code>packages/client/src/components/pixelAvatar.ts</code>
+这两个生产模块（打包为 <code>avatar-runtime.js</code>），样式用 <code>sprite.css</code>，
+图集与元数据直接读 <code>assets/characters/atlas.png</code> / <code>atlas.json</code>。
+请通过 http 打开本页。</p>
+
+<div class="bar">
+  <b>播放</b>
+  <button id="slow">慢放 ×2.5</button>
+  <button id="reduced">减弱动态</button>
+  <button id="pause">暂停呼吸</button>
+  <button id="anchors">显示锚点</button>
+  <button id="allplay">六人依次出牌</button>
+  <button id="allplay6">六人同时出牌</button>
+</div>
+
+<h2>一、持续呼吸（接触点固定）</h2>
+<p class="hint">每人 6 个实际绘制的呼吸帧：胸肩起伏 1 逻辑像素，头发 / 帽饰比头部滞后一帧，周期逐座错峰。
+打开“显示锚点”可看到金色脚底线与蓝色出牌释放点始终不动，席位上还标出当前倍率下的实际释放点坐标。</p>
+<div class="row" id="seats"></div>
+
+<h2>二、逐帧查看（每人 <span id="col-count"></span> 帧）</h2>
+<p class="hint">按图集列序展开，节距 = 单元格 + 间隔。</p>
+<div class="legend" id="legend"></div>
+<div id="strip"></div>
+<div class="ruler" id="ruler"></div>
+
+<h2>三、帧数据与锚点</h2>
+<p class="hint">下表由生产模块导出，不是手写副本。</p>
+<div id="table"></div>
+
+<h2>四、自检 <span id="selfcheck-summary">运行中…</span></h2>
+<p class="hint">直接比对源模块画出的像素与生产图集：图集过期、锚点错位、放牌帧与手部不齐都会在这里标 FAIL；
+另外核对"内联默认倍率能否被样式表覆盖（手机 1x 的链路）"与"呼吸相位是否按实例错开"。</p>
+<div id="selfcheck"></div>
+
+<script type="module" src="./avatar-runtime.js"></script>
+<script>
+  window.addEventListener('error', (event) => {
+    const box = document.getElementById('selfcheck-summary');
+    if (box) { box.textContent = `运行时加载失败：${event.message}`; box.className = 'bad'; }
+  });
+</script>
+</body>
+</html>

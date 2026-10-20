@@ -95,7 +95,10 @@ export function buildServer(opts: { clientDist?: string } = {}): ServerHandle {
     }
     const s = room.state;
     if (s.phase !== 'playing' || !s.round) return;
-    const delay = Math.min(2 ** 31 - 5, Math.max(300, s.round.deadlineAt - Date.now())); // 不限时(~Infinity)时挂起到上限
+    const deadlineAt = s.round.deadlineAt;
+    // 0 表示结算无自动截止；MAX_SAFE_INTEGER 表示本阶段不限时。两者都不挂超时。
+    if (deadlineAt <= 0 || deadlineAt >= Number.MAX_SAFE_INTEGER) return;
+    const delay = Math.min(2 ** 31 - 5, Math.max(300, deadlineAt - Date.now()));
     room.timer = setTimeout(() => {
       room.timer = null;
       if (rooms.get(room.code) !== room) return;

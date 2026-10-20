@@ -1,339 +1,504 @@
-import type { Card, GameEvent, ShowdownEntry } from '../../shared/src/index';
+import type { GameEvent, ShowdownEntry } from '../../shared/src/index';
+import type { SettlementSequence, SettlementStep } from './presentation';
 import { getState } from './store';
 import { createCard } from './components/card';
-import { avatarSVG } from './components/pixelAvatar';
-import { cardLabel } from '../../shared/src/index';
+import { avatarHandRect, cancelAvatarActions, playAvatar, reducedMotion } from './components/pixelAvatar';
 import { sfx } from './components/sfx';
-
-/**
- * 动画编排：串行消费服务端 game:event，映射到飞卡 / 翻牌 / 筹码特效。
- * 原则——"状态兜底，事件只负责好看"：动画结束后回调 renderAll() 让桌面
- * 回到权威快照的样子；检测到事件缺口（seq 跳变/重连）时直接跳过动画。
- * 每个动作后保留节奏停顿，摊牌逐玩家逐张揭示 + 教官裁定演出。
- */
+import { TimerRegistry } from './pending';
 
 export interface FxHooks {
-  renderAll: () => void; // 立即把桌面渲染到最新快照（跳过动画）
-  renderCards: () => void; // 只重绘卡牌区域
+  renderAll: () => void;
+  renderCards: () => void;
   seatEl: (seat: number) => HTMLElement | null;
-  bfZoneEl: (seat: number) => HTMLElement | null; // 座位的出牌段容器（飞牌落点）
-  oppHandEl: (seat: number) => HTMLElement | null; // 对手手牌堆（抽牌动画起点）
-  handEl: () => HTMLElement | null;
-  ownPlayedEl: () => HTMLElement | null;
-  potEl: () => HTMLElement | null;
+  bfZoneEl: (seat: number) => HTMLElement | null;
   deckEl: () => HTMLElement | null;
-  discardEl: () => HTMLElement | null;
-  report: (line: string) => void; // 教官播报战报
-  showdownPrepare: (entries: ShowdownEntry[]) => { seat: number; cards: HTMLElement[]; label: HTMLElement }[];
-  verdict: (html: string) => Promise<void>; // 教官裁定演出
-  banner: (main: string, sub?: string, ms?: number) => Promise<void>;
-  tweenPot: () => void;
+  dealZoneEl: (seat: number) => HTMLElement | null;
+  potEl: () => HTMLElement | null;
+  handEl: () => HTMLElement | null;
+  dealBegin: (counts: [number, number][]) => void;
+  dealEnd: () => void;
+  settlementPrepare: (entries: ShowdownEntry[]) => void;
+  settlementSequence: () => SettlementSequence | null;
+  settlementReplayStart?: () => void;
+  settlementStep: (step: SettlementStep, index: number) => void;
+  settlementDone: (instant: boolean) => void;
+  settlementAbort: (reason: string) => void;
+  caption: (line: string) => void;
+  report: (line: string) => void;
 }
 
 let hooks: FxHooks | null = null;
-export function setFxHooks(h: FxHooks) {
-  hooks = h;
+let epoch = 0;
+let running = false;
+let paused = false;
+const pauseWaiters = new Set<() => void>();
+const queue: GameEvent[] = [];
+const effects = new Set<Animation>();
+const nodes = new Set<HTMLElement>();
+const timers = new TimerRegistry();
+
+/** Own cards selected for flight: remember their screen positions before selection changes. */
+let staged: { id: string; rect: DOMRect }[] = [];
+
+export function stageOwnPlay(entries: { id: string; rect: DOMRect }[]) {
+  staged = entries;
+}
+export function clearStagedOwnPlay() {
+  staged = [];
+}
+export const isBusy = () => running || queue.length > 0;
+export const isPresentationPaused = () => paused;
+
+export function setPresentationPaused(next: boolean) {
+  paused = next;
+  if (!next) {
+    for (const resolve of [...pauseWaiters]) resolve();
+    pauseWaiters.clear();
+  }
 }
 
-const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const EASE = 'cubic-bezier(.2,.8,.2,1)';
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, reducedMotion ? 0 : ms));
-
-type RectLike = { left: number; top: number; width: number; height: number };
-
-function rectOf(el: HTMLElement | null): RectLike | null {
-  return el ? el.getBoundingClientRect() : null;
+function cancelVisuals() {
+  cancelAvatarActions();
+  for (const animation of [...effects]) animation.cancel();
+  effects.clear();
+  for (const node of nodes) node.remove();
+  nodes.clear();
+  timers.cancelAll();
+  document.querySelectorAll<HTMLElement>('[data-fx-hidden]').forEach((node) => {
+    node.style.visibility = '';
+    delete node.dataset.fxHidden;
+  });
+  document.querySelectorAll('.fly-card,.flying-chip').forEach((node) => node.remove());
+  document.querySelectorAll<HTMLElement>('.fx-return,.fx-out').forEach((node) => {
+    node.classList.remove('fx-return', 'fx-out');
+  });
 }
 
-function shiftRect(r: RectLike, dx: number): RectLike {
-  return { left: r.left + dx, top: r.top, width: r.width, height: r.height };
+/**
+ * Clear the current live presentation. Reconnect, hidden tabs, reduced motion and
+ * event gaps use this path; the table then renders the latest snapshot as a completed,
+ * readable result instead of leaving an unreplayable queue behind.
+ */
+export function resetQueue(reason = 'reset') {
+  epoch += 1;
+  queue.length = 0;
+  running = false;
+  staged = [];
+  setPresentationPaused(false);
+  cancelVisuals();
+  hooks?.settlementAbort(reason);
 }
 
-/** 创建一张飞行中的临时卡牌，从 from 飞到 to */
-function flyNode(node: HTMLElement, from: RectLike, to: RectLike, dur = 380): Promise<void> {
-  if (reducedMotion) return Promise.resolve();
+/**
+ * Hook replacement keeps already queued live events. This matters at game start:
+ * events arrive before `main` mounts the table, and the initial deal must still play.
+ */
+export function setFxHooks(next: FxHooks | null) {
+  if (hooks === next) return;
+  epoch += 1;
+  running = false;
+  cancelVisuals();
+  hooks = next;
+  if (hooks && queue.length > 0) void drain(epoch);
+}
+
+function wait(ms: number): Promise<void> {
+  if (reducedMotion() || document.hidden) return Promise.resolve();
+  return new Promise<void>((resolve) => timers.set(ms, resolve));
+}
+
+async function presentationGate() {
+  if (reducedMotion() || document.hidden) return;
+  while (paused) {
+    await new Promise<void>((resolve) => pauseWaiters.add(resolve));
+    if (reducedMotion() || document.hidden) return;
+  }
+}
+
+/**
+ * Live events are staged by the socket and flushed after their authoritative snapshot.
+ * If the socket reports a gap, skip the incomplete story and let the table render the
+ * latest view directly.
+ */
+export function enqueueEvent(ev: GameEvent, gap = false) {
+  if (gap || document.hidden) {
+    resetQueue(gap ? 'gap' : 'hidden');
+    hooks?.renderAll();
+    return;
+  }
+
+  if (ev.t === 'round_start') {
+    resetQueue('round');
+  }
+  if (ev.t === 'showdown') {
+    hooks?.settlementPrepare(ev.entries);
+  }
+  queue.push(ev);
+  if (hooks && !running) void drain(epoch);
+}
+
+async function drain(token: number) {
+  if (running || !hooks) return;
+  running = true;
+  try {
+    while (queue.length > 0 && token === epoch) {
+      const ev = queue.shift()!;
+      await handle(ev, token);
+      if (token === epoch) hooks?.renderCards();
+      await wait(80);
+    }
+  } catch (error) {
+    console.error('演出恢复', error);
+  } finally {
+    if (token === epoch) {
+      running = false;
+      hooks?.renderAll();
+      if (queue.length > 0 && hooks) void drain(epoch);
+    }
+  }
+}
+
+async function fly(
+  node: HTMLElement,
+  from: DOMRect,
+  to: DOMRect,
+  duration = 420,
+): Promise<void> {
+  if (reducedMotion() || document.hidden) return;
   node.classList.add('fly-card');
-  node.style.left = '0px';
-  node.style.top = '0px';
-  node.style.width = `${from.width}px`;
-  node.style.height = `${from.height}px`;
-  document.body.appendChild(node);
+  Object.assign(node.style, {
+    left: `${from.left}px`,
+    top: `${from.top}px`,
+    width: `${from.width}px`,
+    height: `${from.height}px`,
+  });
+  document.body.append(node);
+  nodes.add(node);
   const dx = to.left - from.left + (to.width - from.width) / 2;
   const dy = to.top - from.top + (to.height - from.height) / 2;
-  const sx = to.width / from.width;
-  const anim = node.animate(
+  const animation = node.animate(
     [
-      { transform: 'translate(0, 0) scale(1)' },
-      { transform: `translate(${dx}px, ${dy}px) scale(${sx})` },
+      { transform: 'translate(0,0) scale(1)' },
+      {
+        transform: `translate(${dx}px,${dy - 8}px) scale(${to.width / from.width})`,
+        offset: 0.86,
+      },
+      { transform: `translate(${dx}px,${dy}px) scale(${to.width / from.width})` },
     ],
-    { duration: dur, easing: EASE, fill: 'forwards' },
+    { duration, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' },
   );
-  return anim.finished.then(() => node.remove());
+  effects.add(animation);
+  await animation.finished.catch(() => {});
+  animation.cancel();
+  effects.delete(animation);
+  node.remove();
+  nodes.delete(node);
 }
 
-function flyCardFace(card: Card | null, from: RectLike, to: RectLike, dur = 380) {
-  return flyNode(createCard(card), from, to, dur);
+function rect(el: HTMLElement | null): DOMRect | null {
+  return el?.getBoundingClientRect() ?? null;
 }
 
-function flyChips(from: RectLike | null, to: RectLike | null, count = 3, dur = 420): Promise<void> {
-  if (reducedMotion || !from || !to) return Promise.resolve();
-  const flights: Promise<void>[] = [];
-  for (let i = 0; i < Math.min(count, 5); i++) {
-    const chip = document.createElement('div');
-    chip.className = 'fly-card';
-    chip.style.width = '18px';
-    chip.style.height = '18px';
-    chip.style.background = i % 2 ? 'var(--chip-r)' : 'var(--chip-w)';
-    chip.style.border = '3px dashed var(--card-edge)';
-    chip.style.borderRadius = '50%';
-    chip.style.left = `${from.left + from.width / 2 + i * 4}px`;
-    chip.style.top = `${from.top + from.height / 2}px`;
-    document.body.appendChild(chip);
-    const dx = to.left + to.width / 2 - (from.left + from.width / 2) + i * 4;
-    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
-    const anim = chip.animate(
-      [
-        { transform: 'translate(0,0)', offset: 0 },
-        { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 40}px)`, offset: 0.55 },
-        { transform: `translate(${dx}px, ${dy}px)`, offset: 1 },
-      ],
-      { duration: dur + i * 40, easing: EASE, fill: 'forwards' },
-    );
-    flights.push(anim.finished.then(() => chip.remove()));
-  }
-  return Promise.all(flights).then(() => undefined);
+async function chips(from: DOMRect | null, to: DOMRect | null, delay = 0) {
+  if (!from || !to) return;
+  const node = document.createElement('span');
+  node.className = 'flying-chip';
+  if (delay) await wait(delay);
+  await fly(
+    node,
+    new DOMRect(from.x + from.width / 2 - 8, from.y + from.height / 2 - 8, 16, 16),
+    new DOMRect(to.x + to.width / 2 - 8, to.y + to.height / 2 - 8, 16, 16),
+    460,
+  );
 }
 
-// ---- 事件队列 ----
-
-interface Pending {
-  ev: GameEvent;
-  gap: boolean;
-}
-const queue: Pending[] = [];
-let running = false;
-let dropped = false;
-
-export function enqueueEvent(ev: GameEvent, gap: boolean) {
-  queue.push({ ev, gap });
-  if (gap) dropped = true; // 有缺口：本批直接走兜底
-  if (!running) void drain();
+function handNode(hand: HTMLElement | null, id: string): HTMLElement | null {
+  return (
+    [...(hand?.children ?? [])]
+      .map((node) => node as HTMLElement)
+      .find((node) => node.dataset.id === id) ?? null
+  );
 }
 
-async function drain() {
-  running = true;
-  while (queue.length > 0) {
-    const { ev, gap } = queue.shift()!;
-    try {
-      if (gap || dropped) {
-        hooks?.renderAll();
+function pulse(el: HTMLElement | null, cls: string, ms: number) {
+  if (!el) return;
+  el.classList.add(cls);
+  timers.set(ms, () => el.classList.remove(cls));
+}
+
+function playerName(seat: number): string {
+  const view = getState().view;
+  if (!view) return `座位 ${seat}`;
+  if (seat === view.you.seat) return view.you.name || `座位 ${seat}`;
+  return view.players.find((player) => player.seat === seat)?.name ?? `座位 ${seat}`;
+}
+
+function cardRectFrom(container: DOMRect): DOMRect {
+  const width = Math.min(30, Math.max(22, container.width * 0.32));
+  const height = width * 1.45;
+  return new DOMRect(
+    container.left + container.width / 2 - width / 2,
+    container.top + container.height / 2 - height / 2,
+    width,
+    height,
+  );
+}
+
+async function deal(ev: Extract<GameEvent, { t: 'deal' }>, token: number) {
+  const h = hooks!;
+  h.dealBegin(ev.counts);
+  h.caption('中央牌堆发牌 · 每一位玩家同时收到本回合的手牌');
+  h.renderCards();
+  const source = rect(h.deckEl());
+  const validSource =
+    source !== null && source.width > 0 && source.height > 0;
+  const maximum = Math.max(0, ...ev.counts.map(([, count]) => count));
+  for (let index = 0; index < maximum; index += 1) {
+    if (token !== epoch) return;
+    await presentationGate();
+    const flights: Promise<void>[] = [];
+    for (const [seat, count] of ev.counts) {
+      if (index >= count) continue;
+      const target = rect(h.dealZoneEl(seat));
+      if (
+        !validSource ||
+        !source ||
+        !target ||
+        target.width <= 0 ||
+        target.height <= 0
+      ) {
         continue;
       }
-      await handle(ev);
-      hooks?.renderCards();
-    } catch (e) {
-      console.error('anim error', e);
+      flights.push(fly(createCard(null), cardRectFrom(source), cardRectFrom(target), 420));
+    }
+    if (index === 0) sfx.deal();
+    await Promise.all(flights);
+    await wait(90);
+  }
+  h.dealEnd();
+  h.renderCards();
+  h.report(
+    `发牌 · ${ev.counts
+      .map(([seat, count]) => `${playerName(seat)} ${count} 张`)
+      .join('，')}`,
+  );
+  h.caption('发牌完成 · 查看手牌后开始行动');
+  await wait(180);
+}
+
+async function actionCards(
+  ev: Extract<GameEvent, { t: 'play' | 'add_cards' | 'defense_declared' }>,
+  token: number,
+) {
+  const h = hooks!;
+  const kind = ev.t === 'defense_declared' ? 'defend' : 'play';
+  const own = ev.seat === getState().view?.you.seat;
+  const move = playAvatar(h.seatEl(ev.seat), kind);
+  const release = avatarHandRect(h.seatEl(ev.seat), kind) ?? rect(h.seatEl(ev.seat));
+  const target = rect(h.bfZoneEl(ev.seat));
+  const gathered = own ? staged : [];
+  const hidden: HTMLElement[] = [];
+  h.caption(
+    `${playerName(ev.seat)} · ${
+      ev.t === 'defense_declared' ? '宣布防守' : ev.t === 'add_cards' ? '补牌' : '出牌'
+    } ${ev.cardCount} 张`,
+  );
+
+  if (own) {
+    for (const item of gathered) {
+      const node = handNode(h.handEl(), item.id);
+      if (!node) continue;
+      node.dataset.fxHidden = '1';
+      node.style.visibility = 'hidden';
+      hidden.push(node);
+    }
+    await wait(300);
+    if (release && gathered.length > 0) {
+      const handPoint = new DOMRect(release.x - 14, release.y - 24, 30, 42);
+      await Promise.all(gathered.map((item) => fly(createCard(null), item.rect, handPoint, 260)));
+    }
+  } else {
+    await wait(300);
+  }
+  staged = [];
+  if (token !== epoch) return;
+
+  if (release && target) {
+    sfx.play();
+    const flights: Promise<void>[] = [];
+    for (let index = 0; index < ev.cardCount; index += 1) {
+      const offset = (index - (ev.cardCount - 1) / 2) * 22;
+      const to = new DOMRect(
+        target.left + target.width / 2 + offset - 16,
+        target.top + 10,
+        32,
+        46,
+      );
+      flights.push(
+        fly(createCard(null), new DOMRect(release.x, release.y, 30, 42), to, 470 + index * 35),
+      );
+    }
+    await Promise.all(flights);
+  }
+
+  for (const node of hidden) {
+    node.style.visibility = '';
+    delete node.dataset.fxHidden;
+  }
+  if (token !== epoch) return;
+  h.renderCards();
+  await move;
+  if (token !== epoch) return;
+  h.report(
+    `${playerName(ev.seat)} · ${
+      ev.t === 'defense_declared' ? '防守' : ev.t === 'add_cards' ? '加牌' : '出牌'
+    } ${ev.cardCount}${
+      ev.t === 'defense_declared' && ev.escrow ? ` · 托管 ${ev.escrow}` : ''
+    }`,
+  );
+}
+
+function stepDelay(step: SettlementStep): number {
+  switch (step.kind) {
+    case 'reveal-start':
+      return 520;
+    case 'reveal-card':
+      return 760;
+    case 'reveal-hold':
+      return 1900;
+    case 'no-entry':
+      return 1050;
+    case 'criterion':
+      return 1700;
+    case 'escrow':
+      return 1750;
+    case 'verdict':
+      return 1850;
+    case 'payout':
+      return 720;
+    case 'ready':
+      return 0;
+  }
+}
+
+async function playSettlement(
+  sequence: SettlementSequence,
+  token: number,
+  instant: boolean,
+) {
+  const h = hooks!;
+  for (let index = 0; index < sequence.steps.length; index += 1) {
+    if (token !== epoch) return;
+    await presentationGate();
+    const step = sequence.steps[index];
+    h.settlementStep(step, index);
+    if (instant) continue;
+
+    if (step.kind === 'verdict' && step.winnerSeat !== null) {
+      sfx.win();
+      void playAvatar(h.seatEl(step.winnerSeat), 'win');
+      await chips(rect(h.potEl()), rect(h.seatEl(step.winnerSeat)), 260);
+    } else if (step.kind === 'payout') {
+      if (step.escrowReturn > 0) pulse(h.seatEl(step.seat), 'fx-return', 900);
+      if (step.escrowForfeit > 0) pulse(h.seatEl(step.seat), 'fx-out', 900);
+    }
+    await wait(stepDelay(step));
+  }
+  if (token === epoch) h.settlementDone(instant);
+}
+
+/** Replay is explicit and never auto-advances the round. */
+export function replaySettlement(sequence: SettlementSequence): boolean {
+  if (!hooks || running || queue.length > 0 || document.hidden) return false;
+  const token = ++epoch;
+  running = true;
+  setPresentationPaused(false);
+  hooks.settlementReplayStart?.();
+  void (async () => {
+    try {
+      await playSettlement(sequence, token, reducedMotion());
+    } catch (error) {
+      console.error('结算重播恢复', error);
+    } finally {
+      if (token === epoch) {
+        running = false;
+        hooks?.renderAll();
+      }
+    }
+  })();
+  return true;
+}
+
+async function handle(ev: GameEvent, token: number) {
+  const h = hooks;
+  const view = getState().view;
+  if (!h || !view) return;
+
+  if (ev.t === 'deal') {
+    await deal(ev, token);
+  } else if (ev.t === 'play' || ev.t === 'add_cards' || ev.t === 'defense_declared') {
+    await actionCards(ev, token);
+  } else if (ev.t === 'add_chips') {
+    h.caption(`${playerName(ev.seat)} · 加注 ${ev.betDelta}`);
+    sfx.chip();
+    await playAvatar(h.seatEl(ev.seat), 'play');
+    await chips(rect(h.seatEl(ev.seat)), rect(h.potEl()));
+    if (token === epoch) h.report(`${playerName(ev.seat)} · 加注 ${ev.betDelta}`);
+  } else if (ev.t === 'fold') {
+    h.caption(`${playerName(ev.seat)} · 弃牌`);
+    await playAvatar(h.seatEl(ev.seat), 'fold');
+    if (token === epoch) h.report(`${playerName(ev.seat)} · 弃牌`);
+  } else if (ev.t === 'showdown') {
+    const sequence = h.settlementSequence();
+    if (!sequence) {
+      h.settlementDone(true);
+    } else {
+      await playSettlement(sequence, token, reducedMotion() || document.hidden);
+    }
+  } else if (ev.t === 'winner') {
+    if (ev.seat !== null) h.caption(`奖池分配 · ${playerName(ev.seat)} +${ev.pot}`);
+    h.report(ev.seat === null ? '回合作废' : `${playerName(ev.seat)} · +${ev.pot}`);
+  } else if (ev.t === 'game_started') {
+    h.caption('对局开始');
+    h.report('对局开始');
+  } else if (ev.t === 'round_start') {
+    h.caption(`第 ${ev.roundNo} 回合 · 清点奖池 ${ev.pot}`);
+    h.report(`第 ${ev.roundNo} 回合`);
+  } else if (ev.t === 'agree') {
+    h.report(`${playerName(ev.seat)} · ${ev.agree ? '同意摊牌' : '取消同意'}`);
+  } else if (ev.t === 'defense_passed') {
+    h.report(`${playerName(ev.seat)} · 不防守`);
+  } else if (ev.t === 'defense_window_closed') {
+    h.report('防守窗口关闭');
+  } else if (ev.t === 'agree_reset') {
+    h.report('行动更新，同意已重置');
+  } else if (ev.t === 'eliminated') {
+    // Eliminations are committed before showdown. Keep that result inside the
+    // sequential settlement story instead of dimming the seat or announcing zero
+    // chips while its hand is still being revealed.
+    const current = getState().view;
+    const deferred =
+      !!current?.result &&
+      (current.roundPhase === 'settlement' || current.phase === 'gameover');
+    if (!deferred) {
+      pulse(h.seatEl(ev.seat), 'fx-out', 1100);
+      h.report(`${playerName(ev.seat)} · 淘汰出局`);
+    }
+  } else if (ev.t === 'round_void') {
+    h.caption(`回合作废 · ${ev.reason}`);
+    h.report(`回合作废：${ev.reason}`);
+  } else if (ev.t === 'game_over') {
+    h.report('终局已确定');
+  } else if (ev.t === 'next_ready') {
+    h.report(`${playerName(ev.seat)} · ${ev.agree ? '已准备' : '取消准备'}`);
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      resetQueue('hidden');
       hooks?.renderAll();
     }
-  }
-  dropped = false;
-  running = false;
-  hooks?.renderAll(); // 队列排空：最终兜底，保证与权威状态一致
+  });
 }
-
-export function isBusy() {
-  return running;
-}
-
-export function resetQueue() {
-  queue.length = 0;
-  dropped = true;
-}
-
-// ---- 各事件动画 ----
-
-async function handle(ev: GameEvent): Promise<void> {
-  if (!hooks) return;
-  const h = hooks;
-  const st = getState();
-
-  switch (ev.t) {
-    case 'round_start': {
-      const declarer = st.view?.players.find((p) => p.seat === ev.declarerSeat);
-      await h.banner(`第 ${ev.roundNo} 回合`, `宣战者：${declarer?.name ?? '?'} · 底注各 1`, 1100);
-      break;
-    }
-    case 'deal': {
-      sfx.deal();
-      h.report(`📦 发牌：每人 ${ev.counts[0]?.[1] ?? 6} 张`);
-      const deckRect = rectOf(h.deckEl()) ?? rectOf(h.potEl());
-      const flights: Promise<void>[] = [];
-      for (const [seat, count] of ev.counts) {
-        const target = seat === st.view?.you.seat ? h.handEl() : h.seatEl(seat);
-        const to = rectOf(target);
-        if (!deckRect || !to) continue;
-        for (let k = 0; k < Math.min(count, 3); k++) {
-          flights.push(
-            sleep(k * 90).then(() => {
-              sfx.deal();
-              return flyCardFace(null, deckRect, to, 360);
-            }),
-          );
-        }
-      }
-      await Promise.all(flights);
-      break;
-    }
-    case 'defense_declared': {
-      h.report(`🔒 ${seatName(ev.seat)} 宣布防守 ${ev.cardCount} 张，托管 ${ev.escrow}`);
-      const from = rectOf(h.seatEl(ev.seat));
-      if (from) {
-        sfx.chip();
-        await flyChips(from, from, 2);
-      }
-      break;
-    }
-    case 'play':
-    case 'add_cards': {
-      const own = ev.seat === st.view?.you.seat;
-      // 起点：自己的手牌区 / 对手的手牌堆（抽牌）；终点：各自的出牌区
-      const from = own ? rectOf(h.handEl()) : rectOf(h.oppHandEl(ev.seat) ?? h.seatEl(ev.seat));
-      const to = rectOf(own ? h.ownPlayedEl() : (h.bfZoneEl(ev.seat) ?? h.seatEl(ev.seat)));
-      if (from && to) {
-        // 逐张抽出、按序横摆在桌面上
-        const n = Math.min(ev.cardCount, 6);
-        const cardW = Math.min(56, to.width / (n + 1));
-        for (let k = 0; k < n; k++) {
-          sfx.deal();
-          const slot = shiftRect(to, (k - (n - 1) / 2) * (cardW + 6));
-          await flyCardFace(null, from, slot, 300);
-          await sleep(130);
-        }
-      }
-      const betText = ev.t === 'play' ? `押 ${ev.bet}` : `加注 ${ev.betDelta}`;
-      h.report(
-        ev.revealedTop
-          ? `⚔ ${seatName(ev.seat)} 出 ${ev.cardCount} 张（亮 ${cardLabel(ev.revealedTop)}）· ${betText}`
-          : `⚔ ${seatName(ev.seat)} 暗出 ${ev.cardCount} 张 · ${betText}`,
-      );
-      if (ev.revealedTop) {
-        h.renderCards();
-        sfx.flip();
-        await sleep(400);
-      }
-      if (ev.t === 'add_cards' && ev.betDelta > 0) {
-        const pot = rectOf(h.potEl());
-        if (from && pot) {
-          sfx.chip();
-          await flyChips(from, pot, 2);
-        }
-      }
-      h.renderCards();
-      await sleep(1200); // 节奏停顿：看清刚才发生了什么
-      break;
-    }
-    case 'add_chips': {
-      sfx.chip();
-      h.report(`💰 ${seatName(ev.seat)} 加注 ${ev.betDelta}（累计 ${ev.betTotal}）`);
-      const from = rectOf(h.seatEl(ev.seat));
-      const pot = rectOf(h.potEl());
-      if (from && pot) await flyChips(from, pot, 3);
-      h.tweenPot();
-      await sleep(700);
-      break;
-    }
-    case 'fold': {
-      sfx.fold();
-      h.report(`🏳 ${seatName(ev.seat)} 弃牌离场`);
-      const from = rectOf(h.seatEl(ev.seat));
-      const discard = rectOf(h.discardEl()) ?? rectOf(h.deckEl());
-      if (from && discard) await flyChips(from, discard, 2);
-      h.renderCards();
-      await sleep(600);
-      break;
-    }
-    case 'agree': {
-      sfx.agree();
-      if (ev.agree) h.report(`✋ ${seatName(ev.seat)} 同意结束`);
-      const el = h.seatEl(ev.seat);
-      if (el) el.animate([{ filter: 'brightness(1.8)' }, { filter: 'brightness(1)' }], { duration: 300 });
-      break;
-    }
-    case 'showdown': {
-      // 逐玩家逐张翻面 + 逐人亮出牌型标签
-      h.report('🔍 摊牌 —— 全员亮牌');
-      const prepared = h.showdownPrepare(ev.entries);
-      for (let idx = 0; idx < prepared.length; idx++) {
-        const entry = prepared[idx];
-        const info = ev.entries[idx];
-        const name = st.view?.players.find((p) => p.seat === entry.seat)?.name ?? `座位${entry.seat}`;
-        for (const node of entry.cards) {
-          sfx.flip();
-          node.classList.add('up');
-          await sleep(reducedMotion ? 0 : 180);
-        }
-        entry.label.textContent = info ? `${name}：${info.handAlias}·${info.handName}` : name;
-        await sleep(reducedMotion ? 0 : 850);
-      }
-      // 教官裁定演出
-      const wEntry = ev.entries[0];
-      const wName = st.view?.players.find((p) => p.seat === wEntry?.seat)?.name ?? '?';
-      sfx.horn();
-      await h.verdict(
-        `<div class="verdict-box">
-          <div class="verdict-avatar">${avatarSVG('shirley', 'happy', 6)}</div>
-          <div class="verdict-text">
-            <div class="verdict-title">教官裁定</div>
-            <div class="verdict-main">${wName} 胜！</div>
-            ${wEntry ? `<div class="verdict-sub">${wEntry.handAlias}·${wEntry.handName}</div>` : ''}
-          </div>
-        </div>`,
-      );
-      break;
-    }
-    case 'winner': {
-      if (ev.seat !== null) {
-        const wInfo = ev.result.entries[0];
-        h.report(`🏆 ${seatName(ev.seat)} 以【${wInfo.handAlias}·${wInfo.handName}】收下 ${ev.pot} 筹码`);
-      }
-      if (ev.seat !== null && ev.pot > 0) {
-        const pot = rectOf(h.potEl());
-        const target = rectOf(h.seatEl(ev.seat));
-        if (pot && target) {
-          sfx.win();
-          await flyChips(pot, target, 5, 520);
-        }
-        const w = st.view?.players.find((p) => p.seat === ev.seat);
-        const youWin = ev.seat === st.view?.you.seat;
-        await h.banner(`${w?.name ?? '?'} 收下 ${ev.pot} 筹码`, youWin ? '漂亮！' : '', 1200);
-      } else {
-        await h.banner('回合作废', '无人竞夺奖池，注金退还', 1200);
-      }
-      break;
-    }
-    case 'eliminated': {
-      sfx.lose();
-      const w = st.view?.players.find((p) => p.seat === ev.seat);
-      await h.banner(`${w?.name ?? '?'} 出局`, '', 900);
-      break;
-    }
-    case 'game_over': {
-      sfx.win();
-      const w = st.view?.players.find((p) => p.seat === ev.winnerSeat);
-      await h.banner(`${w?.name ?? '?'} 统治了城堡！`, '', 1400);
-      break;
-    }
-    case 'defense_window_closed':
-    case 'defense_passed':
-    case 'agree_reset':
-    case 'round_void':
-      break;
-  }
-}
-
-function seatName(seat: number): string {
-  return getState().view?.players.find((p) => p.seat === seat)?.name ?? `座位${seat}`;
-}
-
-void seatName;
-

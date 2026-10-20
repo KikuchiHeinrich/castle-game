@@ -16,6 +16,7 @@ export interface LegalActions {
   canAddChips: { min: number; max: number } | null; // rotation：只加筹码的范围
   canFold: boolean;
   canAgree: boolean;
+  canReadyNext: boolean; // settlement：准备/取消准备下一回合
   maxBet: number;
   cardCap: number; // 当前押注上限 = 出战区牌数
   handCount: number;
@@ -34,6 +35,7 @@ export function emptyLegal(phase: RoundPhase | null): LegalActions {
     canAddChips: null,
     canFold: false,
     canAgree: false,
+    canReadyNext: false,
     maxBet: 0,
     cardCap: 0,
     handCount: 0,
@@ -59,7 +61,10 @@ export function legalActions(s: GameState, seat: number): LegalActions {
     return base;
   }
 
-  if (r.phase === 'settlement') return base;
+  if (r.phase === 'settlement') {
+    base.canReadyNext = true; // 出局玩家已在函数入口返回
+    return base;
+  }
 
   // opening / rotation
   base.maxBet = r.maxBet;

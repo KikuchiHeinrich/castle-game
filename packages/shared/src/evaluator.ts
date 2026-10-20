@@ -278,7 +278,11 @@ export function evaluateSubset(cards: Card[]): HandValue | null {
   return evalHighCard(cards); // 散兵
 }
 
-/** 出战区的最终牌型：全部非空子集中比较元组最大者（≤63 个子集） */
+/**
+ * 出战区的最终牌型：全部非空子集中比较元组最大者（≤63 个子集）。
+ * 候选牌型可以只用子集中的一部分牌，但掺水必须按整个出战区计算：
+ * 未被 usedIds 选中的牌都算杂牌，不能因为枚举时排除了它们就消失。
+ */
 export function bestHand(battlefield: Card[]): HandValue | null {
   const n = battlefield.length;
   if (n === 0) return null;
@@ -287,7 +291,9 @@ export function bestHand(battlefield: Card[]): HandValue | null {
     const sub: Card[] = [];
     for (let i = 0; i < n; i++) if (mask & (1 << i)) sub.push(battlefield[i]);
     const hv = evaluateSubset(sub);
-    if (hv && (!best || compareHandValue(hv, best) > 0)) best = hv;
+    if (!hv) continue;
+    hv.junk = n - hv.usedIds.length;
+    if (!best || compareHandValue(hv, best) > 0) best = hv;
   }
   return best;
 }

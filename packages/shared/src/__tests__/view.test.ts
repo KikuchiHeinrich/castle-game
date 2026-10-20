@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addPlayer, buildPlayerView, createGameState, startGame, legalActions } from '../index';
+import { addPlayer, applyAction, buildPlayerView, createGameState, startGame, legalActions } from '../index';
 
 const T0 = 1_000_000;
 
@@ -65,5 +65,28 @@ describe('buildPlayerView 防作弊过滤', () => {
     expect(view.pot).toBe(0);
     expect(view.you.hand).toHaveLength(0);
     expect(view.you.legalActions.canPlay).toBe(false);
+  });
+
+  it('结算视图公开全员 nextReady，并提供本人准备开关', () => {
+    let s = setup(3);
+    for (const p of s.players) {
+      const hand = s.secret!.hands[p!.seat];
+      const res = applyAction(s, p!.seat, { t: 'declare_defense', cardIds: [hand[0].id], escrow: 1 }, T0 + 1000);
+      if (!res.ok) throw new Error(res.error);
+      s = res.state;
+    }
+    expect(s.round!.phase).toBe('settlement');
+
+    const before = buildPlayerView(s, 1)!;
+    expect(before.you.legalActions.canReadyNext).toBe(true);
+    expect(before.you.nextReady).toBe(false);
+    expect(before.players.map((p) => p.nextReady)).toEqual([false, false, false]);
+
+    const ready = applyAction(s, 1, { t: 'ready_next', agree: true }, T0 + 2000);
+    if (!ready.ok) throw new Error(ready.error);
+    const after = buildPlayerView(ready.state, 1)!;
+    expect(after.you.nextReady).toBe(true);
+    expect(after.players.find((p) => p.seat === 1)!.nextReady).toBe(true);
+    expect(after.you.legalActions.canReadyNext).toBe(true);
   });
 });
