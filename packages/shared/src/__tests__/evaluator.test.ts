@@ -150,10 +150,21 @@ describe('bestHand 子集枚举', () => {
     expect(got.typeRank).toBe(14); // 公爵
     expect(got.keySuit).toBe(3); // 黑桃
   });
-  it('一对会丢弃杂牌构成纯对子', () => {
+  it('一对按整个出战区计杂，不因枚举子集而丢失杂牌', () => {
     const got = bestHand([C('s', 'A'), C('h', 'A'), C('d', 9), C('c', 'J'), C('h', 5), C('s', 8)])!;
     expect(got.typeRank).toBe(2);
-    expect(got.junk).toBe(0);
+    expect(got.usedIds).toHaveLength(2);
+    expect(got.junk).toBe(4);
+  });
+  it('同为单剑，纯低对先以杂牌少胜过高对', () => {
+    const pureLower = bestHand([C('s', 'K'), C('h', 'K')])!;
+    const dirtyHigher = bestHand([C('s', 'A'), C('h', 'A'), C('d', 2), C('c', 7)])!;
+
+    expect(pureLower.typeRank).toBe(dirtyHigher.typeRank);
+    expect(pureLower.junk).toBe(0);
+    expect(dirtyHigher.junk).toBe(2);
+    expect(pureLower.keyRank).toBeLessThan(dirtyHigher.keyRank);
+    expect(compareHandValue(pureLower, dirtyHigher)).toBeGreaterThan(0);
   });
   it('6 张同花会取六同花而非五同花', () => {
     const cards = [C('d', 2), C('d', 5), C('d', 7), C('d', 9), C('d', 'J'), C('d', 'K')];
@@ -200,13 +211,15 @@ describe('性质测试', () => {
       }
       const field = deck.slice(0, 6);
       const got = bestHand(field)!;
-      // 全子集枚举验证：不存在比 got 更大的子集牌型
+      // 全子集枚举验证：候选的杂牌同样按整个出战区计，不存在更大的牌型
       for (let mask = 1; mask < 64; mask++) {
         const sub: Card[] = [];
         for (let b = 0; b < 6; b++) if (mask & (1 << b)) sub.push(field[b]);
         const hv2 = evaluateSubset(sub)!;
+        hv2.junk = field.length - hv2.usedIds.length;
         expect(compareHandValue(hv2, got)).toBeLessThanOrEqual(0);
       }
+      expect(got.junk).toBe(field.length - got.usedIds.length);
       // used 牌必须是子集的成员
       const ids = new Set(field.map((c) => c.id));
       for (const id of got.usedIds) expect(ids.has(id)).toBe(true);

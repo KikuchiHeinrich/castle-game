@@ -91,6 +91,7 @@ export interface Player {
   escrow: number; // 防守托管筹码（不进奖池）
   defensePassed: boolean; // 防守窗口表态"不防守"
   agreeEnd: boolean;
+  nextReady: boolean; // 结算后明确准备下一回合（不回退为自动托管）
   lastAction: string; // 中文，用于座位 HUD
 }
 
@@ -159,7 +160,8 @@ export type GameAction =
   | { t: 'add_cards'; cardIds: string[]; betDelta: number }
   | { t: 'add_chips'; betDelta: number }
   | { t: 'fold' }
-  | { t: 'agree_end'; agree: boolean };
+  | { t: 'agree_end'; agree: boolean }
+  | { t: 'ready_next'; agree: boolean };
 
 export type ActionResult = { ok: true; state: GameState; events: GameEvent[] } | { ok: false; error: string };
 
@@ -168,7 +170,7 @@ export type ActionResult = { ok: true; state: GameState; events: GameEvent[] } |
 export type GameEvent =
   | { t: 'game_started'; seats: number[] }
   | { t: 'round_start'; roundNo: number; declarerSeat: number; pot: number }
-  | { t: 'deal'; counts: [number, number][] } // [seat, 张数]
+  | { t: 'deal'; counts: [number, number][] } // [seat, 本次新补发张数]（含 0，不代表最终手牌数）
   | { t: 'defense_declared'; seat: number; cardCount: number; escrow: number; revealedTop: Card | null }
   | { t: 'defense_passed'; seat: number }
   | { t: 'defense_window_closed' }
@@ -179,6 +181,7 @@ export type GameEvent =
   | { t: 'fold'; seat: number }
   | { t: 'agree'; seat: number; agree: boolean }
   | { t: 'agree_reset' }
+  | { t: 'next_ready'; seat: number; agree: boolean }
   | { t: 'showdown'; entries: ShowdownEntry[] }
   | {
       t: 'winner';

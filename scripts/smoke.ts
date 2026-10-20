@@ -67,6 +67,14 @@ async function main() {
       }
       continue;
     }
+    if (view.roundPhase === 'settlement') {
+      if (view.you.legalActions.canReadyNext && !view.you.nextReady) {
+        const r = await emitAck<{ ok: boolean; error?: string }>(c, 'game:action', { action: { t: 'ready_next', agree: true } satisfies GameAction });
+        if (!r.ok) console.log('action rejected: ready_next', r.error);
+        actions++;
+      }
+      continue;
+    }
     if (view.roundPhase !== 'rotation' && view.roundPhase !== 'opening') continue;
     if (view.turnSeat !== me) continue;
     const la = view.you.legalActions;

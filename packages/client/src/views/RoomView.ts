@@ -1,7 +1,8 @@
 import { addBot, startGame } from '../net/socket';
 import { renderHandTypes, toggleDrawer } from '../components/drawer';
 import { tutorialActive } from '../components/tutorial';
-import { avatarSVG } from '../components/pixelAvatar';
+import { avatarSVG, shownAvatar } from '../components/pixelAvatar';
+import { MAX_PLAYERS } from '../../../shared/src/index';
 import type { PlayerView } from '../../../shared/src/index';
 
 export function mountRoom(root: HTMLElement, view: PlayerView) {
@@ -17,11 +18,10 @@ export function mountRoom(root: HTMLElement, view: PlayerView) {
 
   root.innerHTML = `
     <div id="room">
-      <div class="title" style="font-size:40px">城 堡</div>
-      <div class="subtitle">把房间码告诉朋友，输入即可加入</div>
+      <div class="castle-plaque lobby-plaque"><span>城 堡</span><small>把房间码发给朋友</small></div>
       <div class="code-big" id="copy-code" title="点击复制">${view.code}</div>
       <div class="seat-grid">
-        ${Array.from({ length: 6 }, (_, i) => {
+        ${Array.from({ length: MAX_PLAYERS }, (_, i) => {
           const p = view.players[i];
           if (!p) return `<div class="cell empty">空位</div>`;
           const marks = [
@@ -30,7 +30,7 @@ export function mountRoom(root: HTMLElement, view: PlayerView) {
             p.seat === view.you.seat ? '（你）' : '',
           ].join(' ');
           return `<div class="cell">
-            <div class="name">${p.isBot ? avatarSVG(p.avatar, 'happy', 1.5) : ''}${p.name}</div>
+            <div class="name">${p.isBot || p.seat === view.you.seat ? avatarSVG(p.isBot ? shownAvatar(p, tutorialActive()) : p.avatar, 'neutral', 1, p.seat) : ''}${p.name}</div>
             <div class="meta">${marks || '&nbsp;'}</div>
           </div>`;
         }).join('')}
@@ -41,7 +41,6 @@ export function mountRoom(root: HTMLElement, view: PlayerView) {
         <button id="btn-types" class="ghost">牌型总表</button>
         <button id="btn-leave" class="ghost">离开</button>
       </div>
-      <div class="loading">初始 100 筹码 · 底注 1 · 筹码归零淘汰</div>
     </div>
     <div id="drawer"></div>
   `;

@@ -1,4 +1,4 @@
-/* ============ 卡牌：双面翻转 / 像素牌面 ============ */
+/* ============ 卡牌：双面翻转 / 原版像素牌面 ============ */
 
 .card {
   width: var(--card-w);
@@ -23,64 +23,32 @@
   inset: 0;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  border: 2px solid var(--card-edge);
-  box-shadow:
-    inset 0 0 0 2px var(--card-face),
-    inset 0 0 0 3px var(--card-edge),
-    2px 3px 0 #00000066;
+  /* 牌面/牌背都是原版像素图，图里自带描边，不要再叠边框或内描边去盖住它，只留一点外投影 */
+  background-color: var(--card-face);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  box-shadow: 2px 3px 0 #00000066;
 }
 
+/* 正面：把整张 13×5 的图集放大 1300% × 500%，再用列/行百分比把本张那一格对齐到牌面 */
 .card .face.front {
-  background: var(--card-face);
   transform: rotateY(180deg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background-image: url('../assets/cards/kingslayer/cards.png');
+  background-size: 1300% 500%;
+  background-position: var(--card-front-pos, 0% 0%);
 }
 
+/* 未知牌（还没发到 / 只公开牌背）的正面不画任何牌面 */
+.card .face.front.empty {
+  background-image: none;
+}
+
+/* 背面：原版卡背整张铺满 */
 .card .face.back {
-  background:
-    repeating-linear-gradient(45deg, #2b3a67 0 4px, #22305a 4px 8px);
-  box-shadow:
-    inset 0 0 0 3px var(--card-face),
-    inset 0 0 0 4px var(--card-edge),
-    2px 3px 0 #00000066;
+  background-image: url('../assets/cards/kingslayer/card_back.png');
 }
-
-/* 卡背中央的城堡垛口 */
-.card .face.back::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 24px;
-  height: 20px;
-  background: var(--card-face);
-  clip-path: polygon(
-    0 100%, 0 40%, 16% 40%, 16% 20%, 32% 20%, 32% 40%, 44% 40%, 44% 0,
-    56% 0, 56% 40%, 68% 40%, 68% 20%, 84% 20%, 84% 40%, 100% 40%, 100% 100%
-  );
-  opacity: 0.9;
-}
-
-.card .corner {
-  position: absolute;
-  top: 3px;
-  left: 4px;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--ink);
-  letter-spacing: -1px;
-}
-
-.card .pip {
-  font-size: 26px;
-  line-height: 1;
-}
-
-.card.red .corner,
-.card.red .pip { color: var(--red); }
-.card .corner, .card .pip { color: var(--ink); }
 
 /* 选中态 */
 .card.sel .card-inner {
@@ -106,18 +74,18 @@
 
 /* 迷你牌（他人亮牌 / 出战区） */
 .card.mini { width: var(--card-mini-w); height: var(--card-mini-h); }
-.card.mini .corner { font-size: 10px; top: 2px; left: 2px; }
-.card.mini .pip { font-size: 16px; }
 
-/* 牌背小堆（他人手牌数量） */
+/* 牌背小堆（他人手牌数量）：同一张原版卡背 */
 .backs { display: flex; gap: -8px; }
 .backs .mini-back {
   width: 22px;
   height: 32px;
   margin-left: -8px;
-  background: repeating-linear-gradient(45deg, #2b3a67 0 3px, #22305a 3px 6px);
-  border: 1px solid var(--card-edge);
-  box-shadow: inset 0 0 0 1px var(--card-face);
+  background-image: url('../assets/cards/kingslayer/card_back.png');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  box-shadow: 1px 2px 0 #00000066;
 }
 .backs .mini-back:first-child { margin-left: 0; }
 

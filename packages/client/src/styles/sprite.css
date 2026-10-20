@@ -1,0 +1,124 @@
+/* 角色精灵层：48×48 动作画布、整数倍率、最近邻采样。
+   --avatar-default-scale / --atlas-row / 呼吸相位由 pixelAvatar.ts 内联注入，
+   而真正的倍率是下面的 --avatar-scale：内联只给"默认值"，样式表（含手机媒体查询）可以覆盖它。
+   CSS 背景、WAAPI 帧偏移与锚点都读同一个最终值，不会出现"画面 1x、飞牌按 2x"。
+   --atlas-pitch / --atlas-columns / --atlas-rows 由源模块（art/characters.ts）注入，
+   CSS 与 WAAPI 的帧偏移因此共用同一组图集几何，1x / 2x 都相同。 */
+
+.pixel-avatar{
+  --avatar-scale:var(--avatar-default-scale,2);
+  --s:calc(var(--avatar-scale) * 1px);
+  position:relative;
+  display:inline-block;
+  vertical-align:bottom;
+  width:calc(48 * var(--s));
+  height:calc(48 * var(--s));
+  flex:none;
+  user-select:none;
+}
+
+.pixel-avatar .sprite-frame{
+  position:absolute;
+  inset:0;
+  background-repeat:no-repeat;
+  background-size:calc(var(--atlas-pitch,50) * var(--atlas-columns,28) * var(--s)) calc(var(--atlas-pitch,50) * var(--atlas-rows,6) * var(--s));
+  background-position-y:calc(-1 * var(--atlas-pitch,50) * var(--atlas-row,0) * var(--s));
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+}
+
+/* 接触点阴影：静态，不随呼吸起伏，用于锁定脚底基线 */
+.pixel-avatar .avatar-shadow{
+  position:absolute;
+  left:calc(13 * var(--s));
+  bottom:calc(2 * var(--s));
+  width:calc(22 * var(--s));
+  height:calc(5 * var(--s));
+  background:radial-gradient(ellipse at 50% 40%,rgba(4,8,12,.55),rgba(4,8,12,0) 72%);
+  pointer-events:none;
+}
+
+/* 呼吸：6 帧不等停留，总长 3.36s，由 --breath-period 缩放；循环无缝回到第 0 帧 */
+.pixel-avatar .avatar-idle{
+  background-position-x:0;
+  animation-name:castle-breath;
+  animation-duration:var(--breath-period,3.36s);
+  animation-delay:var(--breath-delay,0s);
+  animation-iteration-count:infinite;
+}
+
+@keyframes castle-breath{
+  0%{background-position-x:0;animation-timing-function:steps(1,end);}
+  19.345%{background-position-x:calc(-1 * var(--atlas-pitch,50) * var(--s));animation-timing-function:steps(1,end);}
+  32.143%{background-position-x:calc(-2 * var(--atlas-pitch,50) * var(--s));animation-timing-function:steps(1,end);}
+  49.107%{background-position-x:calc(-3 * var(--atlas-pitch,50) * var(--s));animation-timing-function:steps(1,end);}
+  67.262%{background-position-x:calc(-4 * var(--atlas-pitch,50) * var(--s));animation-timing-function:steps(1,end);}
+  81.548%{background-position-x:calc(-5 * var(--atlas-pitch,50) * var(--s));}
+  100%{background-position-x:calc(-5 * var(--atlas-pitch,50) * var(--s));}
+}
+
+/* 动作层：由 playAvatar() 用 Web Animations 驱动背景帧；
+   呼吸层保持运行但不可见，动作结束后从当前相位恢复，不重播第一帧。 */
+.pixel-avatar .avatar-action{
+  background-position-x:0;
+  opacity:0;
+  visibility:hidden;
+}
+.pixel-avatar[data-action] .avatar-action{
+  opacity:1;
+  visibility:visible;
+}
+.pixel-avatar[data-action] .avatar-idle{
+  visibility:hidden;
+}
+
+/* 页面在后台时暂停无用循环 */
+html.page-hidden .pixel-avatar .avatar-idle,
+html.page-hidden .pixel-avatar .avatar-action{
+  animation-play-state:paused;
+}
+
+/* 减弱动态：关闭呼吸与长距离演出，保留最终牌面与行动确认 */
+html[data-motion='reduced'] .pixel-avatar .avatar-idle,
+html[data-motion='reduced'] .pixel-avatar .avatar-action{
+  animation:none;
+  background-position-x:0;
+}
+html[data-motion='reduced'] .pixel-avatar[data-action] .avatar-idle{
+  visibility:visible;
+}
+html[data-motion='reduced'] .pixel-avatar[data-action] .avatar-action{
+  visibility:hidden;
+}
+
+/* 减弱动态：动作帧关闭后仍要有清晰的短确认（标签 + 金色描边，不做位移） */
+.pixel-avatar.avatar-confirm{
+  outline:2px solid var(--gold);
+  outline-offset:2px;
+}
+
+.pixel-avatar.avatar-confirm::after{
+  content:attr(data-confirm);
+  position:absolute;
+  left:50%;
+  bottom:calc(100% - 4px);
+  transform:translateX(-50%);
+  padding:1px 5px;
+  font-size:10px;
+  line-height:1.4;
+  white-space:nowrap;
+  color:var(--card-edge);
+  background:var(--gold);
+  border:1px solid #00000066;
+  pointer-events:none;
+}
+
+@media (prefers-reduced-motion:reduce){
+  .pixel-avatar .avatar-idle,
+  .pixel-avatar .avatar-action{
+    animation:none;
+    background-position-x:0;
+  }
+  .pixel-avatar[data-action] .avatar-idle{visibility:visible;}
+  .pixel-avatar[data-action] .avatar-action{visibility:hidden;}
+}

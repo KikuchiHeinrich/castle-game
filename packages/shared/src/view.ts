@@ -23,6 +23,7 @@ export interface PublicPlayer {
   battlefieldCount: number;
   playSegments: PlaySegment[]; // 出牌段（全为公开信息）
   agreeEnd: boolean;
+  nextReady: boolean;
   lastAction: string;
 }
 
@@ -40,6 +41,7 @@ export interface YouView {
   invested: number;
   escrow: number;
   agreeEnd: boolean;
+  nextReady: boolean;
   defensePassed: boolean;
   lastAction: string;
   away: boolean;
@@ -92,6 +94,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
     battlefieldCount: p.battlefield.length,
     playSegments: p.playSegments.map((s0) => ({ ...s0 })),
     agreeEnd: p.agreeEnd,
+    nextReady: p.nextReady,
     lastAction: p.lastAction,
   });
 
@@ -127,6 +130,7 @@ export function buildPlayerView(s: GameState, seat: number, recentEvents: GameEv
       invested: me.invested,
       escrow: me.escrow,
       agreeEnd: me.agreeEnd,
+      nextReady: me.nextReady,
       defensePassed: me.defensePassed,
       lastAction: me.lastAction,
       away: me.away,

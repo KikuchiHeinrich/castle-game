@@ -12,8 +12,7 @@ export function mountLobby(root: HTMLElement) {
 
   root.innerHTML = `
     <div id="lobby">
-      <div class="title">城 堡</div>
-      <div class="subtitle">原创扑克筹码博弈 · 2~6 人在线对战 · 出牌即押注，杂牌会掺水</div>
+      <div class="castle-plaque lobby-plaque"><span>城 堡</span><small>2~4 人 · 出牌即押注</small></div>
       <div class="menu pixel-panel">
         <div class="row">
           <input id="name" type="text" maxlength="12" placeholder="你的昵称" value="${ui.name.replace(/"/g, '')}" style="width:180px" />
@@ -65,13 +64,12 @@ export function mountLobby(root: HTMLElement) {
               <option value="3">×3（疯狂模式）</option>
             </select>
           </div>
-          <div class="cfg-note">筹码倍数：押注上限 = 出战区牌数 × 倍数，越高越刺激；不限时建议熟悉规则后再用</div>
+          <div class="cfg-note">押注上限 = 出战牌数 × 倍数</div>
         </details>
       </div>
       <div class="row">
         <button id="btn-types" class="ghost">牌型总表</button>
       </div>
-      <div class="loading">建议手机/电脑都开一个页面试玩 · 一台设备可开多个标签页扮演多人</div>
     </div>
     <div id="drawer"></div>
   `;
@@ -109,11 +107,11 @@ export function mountLobby(root: HTMLElement) {
 
   const collectSettings = (): Partial<RoomSettings> => {
     const turnSec = Number(root.querySelector<HTMLSelectElement>('#cfg-turn')!.value);
-    const turnMs = turnSec * 1000;
+    // normalizeSettings() 以「秒」为输入、以毫秒存储，越界时按 5~600s / 10~1200s / 30~3600s 收敛
     return {
-      turnMs,
-      defenseMs: turnMs === 0 ? 0 : Math.max(15_000, Math.round(turnMs / 2)),
-      idleMs: turnMs === 0 ? 0 : Math.max(60_000, turnMs * 6),
+      turnMs: turnSec,
+      defenseMs: turnSec === 0 ? 0 : Math.max(15, Math.round(turnSec / 2)),
+      idleMs: turnSec === 0 ? 0 : Math.max(60, turnSec * 6),
       startChips: Number(root.querySelector<HTMLSelectElement>('#cfg-chips')!.value),
       ante: Number(root.querySelector<HTMLSelectElement>('#cfg-ante')!.value),
       chipMultiplier: Number(root.querySelector<HTMLSelectElement>('#cfg-mult')!.value),
@@ -130,8 +128,8 @@ export function mountLobby(root: HTMLElement) {
     if (!name) return;
     sfx.click();
     startTutorial();
-    // 教学局：宽限时长 + 1 名教官机器人
-    void createRoom(name, { turnMs: 120_000, defenseMs: 30_000, idleMs: 600_000, startChips: 100, ante: 1 }, avatar);
+    // 教学局：宽限时长（秒）+ 1 名教官机器人
+    void createRoom(name, { turnMs: 120, defenseMs: 30, idleMs: 600, startChips: 100, ante: 1 }, avatar);
   });
 
   root.querySelector('#btn-join')!.addEventListener('click', () => {

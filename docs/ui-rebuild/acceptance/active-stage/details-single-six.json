@@ -1,0 +1,105 @@
+{
+  "cards": [
+    {
+      "rect": {
+        "bottom": 388.75,
+        "height": 70,
+        "left": 28,
+        "right": 78,
+        "top": 318.75,
+        "width": 50,
+        "x": 28,
+        "y": 318.75
+      },
+      "up": true
+    },
+    {
+      "rect": {
+        "bottom": 388.75,
+        "height": 70,
+        "left": 80,
+        "right": 130,
+        "top": 318.75,
+        "width": 50,
+        "x": 80,
+        "y": 318.75
+      },
+      "up": false
+    },
+    {
+      "rect": {
+        "bottom": 388.75,
+        "height": 70,
+        "left": 132,
+        "right": 182,
+        "top": 318.75,
+        "width": 50,
+        "x": 132,
+        "y": 318.75
+      },
+      "up": false
+    },
+    {
+      "rect": {
+        "bottom": 388.75,
+        "height": 70,
+        "left": 184,
+        "right": 234,
+        "top": 318.75,
+        "width": 50,
+        "x": 184,
+        "y": 318.75
+      },
+      "up": false
+    },
+    {
+      "rect": {
+        "bottom": 388.75,
+        "height": 70,
+        "left": 236,
+        "right": 286,
+        "top": 318.75,
+        "width": 50,
+        "x": 236,
+        "y": 318.75
+      },
+      "up": false
+    },
+    {
+      "rect": {
+        "bottom": 460.75,
+        "height": 70,
+        "left": 28,
+        "right": 78,
+        "top": 390.75,
+        "width": 50,
+        "x": 28,
+        "y": 390.75
+      },
+      "up": false
+    }
+  ],
+  "panel": {
+    "bottom": 476.75,
+    "height": 385.5,
+    "left": 11,
+    "right": 309,
+    "top": 91.25,
+    "width": 298,
+    "x": 11,
+    "y": 91.25
+  },
+  "rect": {
+    "bottom": 479.75,
+    "height": 391.5,
+    "left": 8,
+    "right": 312,
+    "top": 88.25,
+    "width": 304,
+    "x": 8,
+    "y": 88.25
+  },
+  "segments": [
+    "1·6张"
+  ]
+}

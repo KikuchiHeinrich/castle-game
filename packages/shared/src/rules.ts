@@ -18,12 +18,12 @@ import { allPlayers, getPlayer, nextVoter, survivors, voters } from './seating';
 // ============ 常量 ============
 
 export const TIMING = {
-  settlementMs: 5_000, // 摊牌展示（固定）
+  settlementMs: 5_000, // 前端摊牌演出参考时长；服务端不以它自动推进
 };
 export const START_CHIPS = 100;
 export const ANTE = 1;
 export const HAND_SIZE = 6;
-export const MAX_PLAYERS = 6;
+export const MAX_PLAYERS = 4;
 export const MIN_PLAYERS = 2;
 
 /** 建房参数规范化（服务端与客户端共用）：越界/非法值落回默认 */
@@ -67,19 +67,23 @@ export function createGameState(code: string, settings?: Partial<RoomSettings>):
   };
 }
 
+/** 电脑玩家按座位轮换的形象 id（与前端 art/characters.ts 的六个角色一致） */
+export const BOT_AVATARS = ['shirley', 'yan', 'cang', 'mo', 'sen', 'jin'];
+
 export function addPlayer(s: GameState, name: string, isBot = false, avatar = 'shirley'): { ok: true; seat: number } | { ok: false; error: string } {
   if (s.phase !== 'lobby') return { ok: false, error: '对局已开始，无法加入' };
   const clean = name.trim().slice(0, 12);
   if (!clean) return { ok: false, error: '昵称不能为空' };
   const count = s.players.filter((p) => p !== null).length;
-  if (count >= MAX_PLAYERS) return { ok: false, error: '房间已满（最多 6 人）' };
+  if (count >= MAX_PLAYERS) return { ok: false, error: `房间已满（最多 ${MAX_PLAYERS} 人）` };
   // 座位号稳定：填第一个空位，不重排（重连 token 按座位号索引）
   let seat = s.players.findIndex((p) => p === null);
   if (seat === -1) seat = s.players.length;
   const player: Player = {
     seat,
     name: isBot ? `电脑${clean}` : clean,
-    avatar: isBot ? 'shirley' : avatar,
+    // 电脑按座位轮换形象，避免整桌同一人物；形象 id 与前端 art/characters.ts 一致
+    avatar: isBot ? BOT_AVATARS[seat % BOT_AVATARS.length] : avatar,
     chips: s.settings.startChips,
     isHost: seat === 0,
     isBot,
@@ -93,6 +97,7 @@ export function addPlayer(s: GameState, name: string, isBot = false, avatar = 's
     escrow: 0,
     defensePassed: false,
     agreeEnd: false,
+    nextReady: false,
     lastAction: '',
   };
   s.players[seat] = player;
@@ -117,7 +122,7 @@ export function startGame(s: GameState, seat: number, seed: number, now: number)
   const p = getPlayer(s, seat);
   if (!p?.isHost) return { ok: false, error: '只有房主才能开始游戏' };
   if (s.phase !== 'lobby') return { ok: false, error: '游戏已开始' };
-  if (s.players.length < MIN_PLAYERS) return { ok: false, error: `至少需要 ${MIN_PLAYERS} 名玩家` };
+  if (allPlayers(s).length < MIN_PLAYERS) return { ok: false, error: `至少需要 ${MIN_PLAYERS} 名玩家` };
   s.phase = 'playing';
   for (const pl of allPlayers(s)) {
     pl.chips = s.settings.startChips;
@@ -129,6 +134,7 @@ export function startGame(s: GameState, seat: number, seed: number, now: number)
     pl.escrow = 0;
     pl.defensePassed = false;
     pl.agreeEnd = false;
+    pl.nextReady = false;
     pl.lastAction = '';
   }
   s.secret = { seed, deck: buildDeck(), hands: s.players.map(() => []) };
@@ -159,6 +165,7 @@ export function rematch(s: GameState, seat: number): { ok: boolean; error?: stri
     pl.escrow = 0;
     pl.defensePassed = false;
     pl.agreeEnd = false;
+    pl.nextReady = false;
     pl.lastAction = '';
   }
   return { ok: true };
@@ -238,18 +245,22 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
     p.escrow = 0;
     p.defensePassed = false;
     p.agreeEnd = false;
+    p.nextReady = false;
     p.lastAction = '';
     if (p.status !== 'out') p.status = 'active';
   }
   const shuffled = shuffle(deck, s.secret!.seed);
   s.secret!.seed = shuffled.seed;
   const pool = shuffled.arr;
+  const drawn = new Map<number, number>();
   for (const p of alive) {
     const hand = keptHands.get(p.seat) ?? [];
+    const before = hand.length;
     while (hand.length < HAND_SIZE && pool.length > 0) {
       hand.push(pool.pop()!);
     }
     s.secret!.hands[p.seat] = hand;
+    drawn.set(p.seat, hand.length - before);
   }
   s.secret!.deck = pool;
 
@@ -286,7 +297,7 @@ function newRound(s: GameState, now: number, events: GameEvent[]) {
   };
   s.round = round;
   push(s, events, { t: 'round_start', roundNo, declarerSeat: declarer, pot });
-  push(s, events, { t: 'deal', counts: alive.map((p) => [p.seat, s.secret!.hands[p.seat].length] as [number, number]) });
+  push(s, events, { t: 'deal', counts: alive.map((p) => [p.seat, drawn.get(p.seat) ?? 0] as [number, number]) });
 }
 
 /** 防守窗口收口：未表态者视为不防守；全员防守则作废回合 */
@@ -346,7 +357,7 @@ function voidRound(s: GameState, now: number, events: GameEvent[], reason: strin
   };
   r.result = result;
   r.phase = 'settlement';
-  r.deadlineAt = now + TIMING.settlementMs;
+  r.deadlineAt = 0;
   push(s, events, { t: 'round_void', reason });
   push(s, events, { t: 'winner', seat: null, pot: 0, result });
 }
@@ -457,7 +468,7 @@ function doShowdown(s: GameState, now: number, events: GameEvent[]) {
   };
   r.result = result;
   r.phase = 'settlement';
-  r.deadlineAt = now + TIMING.settlementMs;
+  r.deadlineAt = 0;
 
   push(s, events, { t: 'showdown', entries });
   push(s, events, { t: 'winner', seat: wp.seat, pot: potAmount, result });
@@ -465,6 +476,7 @@ function doShowdown(s: GameState, now: number, events: GameEvent[]) {
   if (survivors(s).length <= 1) {
     s.winnerSeat = survivors(s)[0]?.seat ?? wp.seat;
     push(s, events, { t: 'game_over', winnerSeat: s.winnerSeat });
+    s.phase = 'gameover';
   }
 }
 
@@ -682,6 +694,14 @@ export function applyAction(s0: GameState, seat: number, action: GameAction, now
       applyAgree(s, seat, action.agree, now, events);
       break;
     }
+    case 'ready_next': {
+      if (r.phase !== 'settlement') return err('现在不是结算准备阶段');
+      p.nextReady = action.agree;
+      p.lastAction = action.agree ? '准备下一回合' : '取消准备';
+      push(s, events, { t: 'next_ready', seat, agree: action.agree });
+      if (survivors(s).every((v) => v.nextReady)) newRound(s, now, events);
+      break;
+    }
   }
   s.stateSeq++;
   return { ok: true, state: s, events };
@@ -696,13 +716,11 @@ export function tick(s0: GameState, now: number): { state: GameState; events: Ga
     if (s.phase !== 'playing' || !s.round || !s.secret) break;
     const r = s.round;
     if (r.phase === 'settlement') {
-      if (now < r.deadlineAt) break;
-      if (s.winnerSeat !== null) {
+      if (s.phase === 'playing' && s.winnerSeat !== null) {
         s.phase = 'gameover';
-        break;
       }
-      newRound(s, now, events);
-      continue;
+      // 结算只能由全员 ready_next 推进；deadlineAt=0 表示没有自动截止时间。
+      break;
     }
     if (now < r.deadlineAt) {
       if (r.phase === 'rotation' && s.settings.idleMs > 0 && now - r.lastActionAt >= s.settings.idleMs) {

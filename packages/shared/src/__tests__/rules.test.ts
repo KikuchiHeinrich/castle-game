@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { Card, GameAction, GameState, ANTE, HAND_SIZE, START_CHIPS, TIMING, addPlayer, applyAction, createGameState, normalizeSettings, rematch, startGame, tick } from '../index';
+import { Card, GameAction, GameEvent, GameState, ANTE, HAND_SIZE, MAX_PLAYERS, START_CHIPS, addPlayer, applyAction, bestHand, createGameState, normalizeSettings, rematch, startGame, tick } from '../index';
 
 const T0 = 1_000_000;
 const TURN_MS = 60_000; // 与 DEFAULT_SETTINGS.turnMs 一致
 
-function newGame(n = 3, seed = 7): { s: GameState; declarerSeat: number } {
+function newGame(n = 3, seed = 7): { s: GameState; declarerSeat: number; events: GameEvent[] } {
   let s = createGameState('TST1');
   for (let i = 0; i < n; i++) {
     const r = addPlayer(s, `P${i}`);
@@ -12,7 +12,7 @@ function newGame(n = 3, seed = 7): { s: GameState; declarerSeat: number } {
   }
   const g = startGame(s, 0, seed, T0);
   if (!g.ok) throw new Error(g.error);
-  return { s: g.state, declarerSeat: g.state.round!.declarerSeat };
+  return { s: g.state, declarerSeat: g.state.round!.declarerSeat, events: g.events };
 }
 
 function act(s: GameState, seat: number, action: GameAction, now = T0 + 1000): GameState {
@@ -67,6 +67,12 @@ function cardTotal(s: GameState): number {
 }
 
 const seatOf = (s: GameState, i: number) => s.players[i]!;
+const survivorsOf = (s: GameState) => s.players.filter((p) => p && p.status !== 'out');
+const readyAll = (s0: GameState, agree = true): GameState => {
+  let s = s0;
+  for (const p of survivorsOf(s)) s = act(s, p!.seat, { t: 'ready_next', agree });
+  return s;
+};
 const nextVoterOf = (s: GameState, from: number): number => {
   const n = s.players.length;
   for (let i = 1; i <= n; i++) {
@@ -78,7 +84,7 @@ const nextVoterOf = (s: GameState, from: number): number => {
 
 describe('开局', () => {
   it('发牌 6 张、扣底注、进入防守窗口', () => {
-    const { s } = newGame(3);
+    const { s, events } = newGame(3);
     expect(s.phase).toBe('playing');
     expect(s.round!.phase).toBe('defense_window');
     expect(s.round!.pot).toBe(3 * ANTE);
@@ -89,6 +95,8 @@ describe('开局', () => {
     }
     expect(cardTotal(s)).toBe(52);
     expect(s.secret!.deck.length).toBe(52 - 3 * HAND_SIZE);
+    const deal = events.find((ev) => ev.t === 'deal');
+    expect(deal?.t === 'deal' ? deal.counts : null).toEqual([[0, 6], [1, 6], [2, 6]]);
   });
 });
 
@@ -140,8 +148,20 @@ describe('全流程：宣战 → 跟牌 → 弃牌 → 同意 → 摊牌 → 备
     expect(seatOf(s, other2).chips).toBe(START_CHIPS - ANTE);
     expect(s.lastWinnerSeat).toBe(declarerSeat);
 
-    const t = tick(s, T0 + 1000 + TIMING.settlementMs + 1);
-    s = t.state;
+    expect(s.round!.deadlineAt).toBe(0);
+    s = act(s, declarerSeat, { t: 'ready_next', agree: true });
+    s = act(s, other1, { t: 'ready_next', agree: true });
+    expect(s.round!.phase).toBe('settlement'); // 弃牌者仍是存活玩家，必须明确准备
+    expect(seatOf(s, other2).nextReady).toBe(false);
+
+    seatOf(s, other2).connected = false;
+    const frozen = tick(s, T0 + 10_000_000);
+    expect(frozen.state.round!.roundNo).toBe(1);
+    expect(frozen.state.round!.phase).toBe('settlement');
+    expect(frozen.events).toHaveLength(0);
+    expect(seatOf(frozen.state, other2).nextReady).toBe(false);
+
+    s = act(s, other2, { t: 'ready_next', agree: true });
     expect(s.round!.roundNo).toBe(2);
     expect(s.round!.declarerSeat).toBe(declarerSeat); // 上回合胜者开局
     expect(s.round!.phase).toBe('defense_window');
@@ -151,7 +171,96 @@ describe('全流程：宣战 → 跟牌 → 弃牌 → 同意 → 摊牌 → 备
       expect(p!.battlefield).toHaveLength(0);
       expect(s.secret!.hands[p!.seat]).toHaveLength(HAND_SIZE);
       expect(p!.status).toBe('active');
+      expect(p!.nextReady).toBe(false);
     }
+  });
+
+  it('同一对子先比杂牌：纯低对战胜带杂高对', () => {
+    const { s: s0, declarerSeat } = newGame(2);
+    let s = s0;
+    const other = nextVoterOf(s, declarerSeat);
+    replaceHands(s, {
+      [declarerSeat]: ['♠K', '♥K', '♦4', '♣5', '♥6', '♦7'],
+      [other]: ['♠A', '♥A', '♦2', '♣7', '♥4', '♦5'],
+    });
+
+    for (const seat of [declarerSeat, other]) s = act(s, seat, { t: 'pass_defense' });
+    s = act(s, declarerSeat, { t: 'play', cardIds: ['♠K', '♥K'], bet: 0 });
+    s = act(s, other, { t: 'play', cardIds: ['♠A', '♥A', '♦2', '♣7'], bet: 0 });
+    s = act(s, declarerSeat, { t: 'agree_end', agree: true });
+    s = act(s, other, { t: 'agree_end', agree: true });
+
+    expect(s.round!.phase).toBe('settlement');
+    const result = s.round!.result!;
+    expect(result.winnerSeat).toBe(declarerSeat);
+    expect(result.entries.map((e) => e.seat)).toEqual([declarerSeat, other]);
+    expect(result.entries[0].typeRank).toBe(2);
+    expect(result.entries[0].junk).toBe(0);
+    expect(bestHand(result.entries[0].cards)!.keyRank).toBe(13);
+    expect(result.entries[0].usedIds).toHaveLength(2);
+    expect(result.entries[1].typeRank).toBe(2);
+    expect(result.entries[1].junk).toBe(2);
+    expect(bestHand(result.entries[1].cards)!.keyRank).toBe(14);
+    expect(result.entries[1].usedIds).toHaveLength(2);
+    expect(seatOf(s, declarerSeat).chips).toBe(START_CHIPS - ANTE + 2);
+    expect(seatOf(s, other).chips).toBe(START_CHIPS - ANTE);
+  });
+});
+
+describe('结算准备', () => {
+  function settledVoidGame(): GameState {
+    const { s: s0 } = newGame(3);
+    let s = s0;
+    for (const p of survivorsOf(s)) {
+      s = act(s, p!.seat, { t: 'declare_defense', cardIds: [s.secret!.hands[p!.seat][0].id], escrow: 1 });
+    }
+    expect(s.round!.phase).toBe('settlement');
+    return s;
+  }
+
+  it('支持部分准备、取消与全员准备；next_ready 事件公开', () => {
+    let s = settledVoidGame();
+
+    const first = applyAction(s, 0, { t: 'ready_next', agree: true }, T0 + 2000);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.events.some((e) => e.t === 'next_ready' && e.seat === 0 && e.agree)).toBe(true);
+    s = first.state;
+    expect(seatOf(s, 0).nextReady).toBe(true);
+    expect(s.round!.phase).toBe('settlement');
+
+    s = act(s, 0, { t: 'ready_next', agree: false });
+    expect(seatOf(s, 0).nextReady).toBe(false);
+    expect(s.round!.phase).toBe('settlement');
+
+    s = act(s, 0, { t: 'ready_next', agree: true });
+    s = act(s, 1, { t: 'ready_next', agree: true });
+    expect(s.round!.phase).toBe('settlement');
+    expect(seatOf(s, 2).nextReady).toBe(false);
+
+    s = act(s, 2, { t: 'ready_next', agree: true });
+    expect(s.round!.roundNo).toBe(2);
+    expect(s.round!.phase).toBe('defense_window');
+    for (const p of s.players) expect(p!.nextReady).toBe(false);
+  });
+
+  it('已淘汰玩家不参与全员准备，也不再能准备', () => {
+    let s = settledVoidGame();
+    seatOf(s, 2).status = 'out';
+    seatOf(s, 2).chips = 0;
+
+    s = act(s, 0, { t: 'ready_next', agree: true });
+    s = act(s, 1, { t: 'ready_next', agree: true });
+    expect(s.round!.roundNo).toBe(2);
+    expect(seatOf(s, 2).status).toBe('out');
+    expect(seatOf(s, 2).nextReady).toBe(false);
+  });
+
+  it('只有结算阶段接受准备操作', () => {
+    const { s } = newGame(3);
+    expect(tryAct(s, 0, { t: 'ready_next', agree: true })).toContain('结算准备阶段');
+    const settled = settledVoidGame();
+    expect(tryAct(settled, 0, { t: 'agree_end', agree: true })).toContain('现在不能表态');
   });
 });
 
@@ -231,9 +340,9 @@ describe('防守', () => {
     expect(s.round!.phase).toBe('settlement');
     expect(s.round!.result!.voidRound).toBe(true);
     for (const p of s.players) expect(p!.chips).toBe(START_CHIPS);
-    const t = tick(s, T0 + 1000 + TIMING.settlementMs + 1);
-    expect(t.state.round!.roundNo).toBe(2);
-    expect(t.state.round!.pot).toBe(3);
+    s = readyAll(s);
+    expect(s.round!.roundNo).toBe(2);
+    expect(s.round!.pot).toBe(3);
   });
 });
 
@@ -387,9 +496,8 @@ describe('淘汰与终局', () => {
     expect(seatOf(s, declarerSeat).chips).toBe(START_CHIPS - ANTE - 4 + (2 + 4));
     expect(seatOf(s, a).chips).toBe(1); // 弃牌不退款，仍是 1，未归零
 
-    // 第二回合：a 底注后 0 筹码，弃牌后归零淘汰 → 终局
-    let t = tick(s, T0 + 3000 + TIMING.settlementMs + 1);
-    s = t.state;
+    // 全员明确准备后进入第二回合：a 底注后 0 筹码，弃牌后归零淘汰 → 终局
+    s = readyAll(s);
     expect(s.round!.roundNo).toBe(2);
     expect(seatOf(s, a).chips).toBe(0);
     const opener = s.round!.declarerSeat;
@@ -408,11 +516,15 @@ describe('淘汰与终局', () => {
     expect(['folded', 'out']).toContain(seatOf(s, a).status);
     expect(s.round!.phase).toBe('settlement');
     expect(seatOf(s, a).chips).toBe(0);
-
-    const t3 = tick(s, T0 + 6000 + TURN_MS + TIMING.settlementMs + 1);
-    s = t3.state;
     expect(s.phase).toBe('gameover');
     expect(s.winnerSeat).toBe(opener);
+    expect(s.round!.result).not.toBeNull();
+    expect(t2.events.map((e) => e.t)).toEqual(expect.arrayContaining(['fold', 'showdown', 'eliminated', 'winner', 'game_over']));
+
+    const frozen = tick(s, T0 + 10_000_000);
+    expect(frozen.state.phase).toBe('gameover');
+    expect(frozen.state.round!.result).toEqual(s.round!.result);
+    expect(frozen.events).toHaveLength(0);
 
     const r = rematch(s, opener);
     expect(r.ok).toBe(true);
@@ -527,8 +639,7 @@ describe('备战继承手牌', () => {
       kept[p.seat] = s.secret!.hands[p.seat].map((c) => c.id);
     }
 
-    const t = tick(s, T0 + 1000 + TIMING.settlementMs + 1);
-    s = t.state;
+    s = readyAll(s);
     expect(s.round!.roundNo).toBe(2);
     // 上一回合没用过的牌必须还在手里
     for (const p of s.players) {
@@ -539,9 +650,73 @@ describe('备战继承手牌', () => {
     }
     expect(cardTotal(s)).toBe(52);
   });
+
+  it('deal 只报告新补牌：四家为 2,2,0,2，继承牌保留且最终仍为 6 张', () => {
+    const { s: s0 } = newGame(4, 13);
+    const foldedSeat = 2;
+    let s = s0;
+
+    for (let i = 0; i < 4; i++) s = act(s, i, { t: 'pass_defense' });
+    for (let i = 0; i < 4; i++) {
+      const seat = s.round!.turnSeat;
+      if (seat === foldedSeat) {
+        s = act(s, seat, { t: 'fold' });
+      } else {
+        const ids = s.secret!.hands[seat].slice(0, 2).map((c) => c.id);
+        s = act(s, seat, { t: 'play', cardIds: ids, bet: 0 });
+      }
+    }
+    expect(s.players.filter((p) => p?.status === 'active')).toHaveLength(3);
+    expect(s.players[foldedSeat]!.status).toBe('folded');
+
+    for (let i = 0; i < 3; i++) {
+      s = act(s, s.round!.turnSeat, { t: 'agree_end', agree: true });
+    }
+    expect(s.round!.phase).toBe('settlement');
+
+    const inherited = new Map<number, string[]>();
+    for (const p of s.players) {
+      if (p) inherited.set(p.seat, s.secret!.hands[p.seat].map((c) => c.id));
+    }
+
+    let deal: Extract<GameEvent, { t: 'deal' }> | null = null;
+    for (const p of survivorsOf(s)) {
+      const res = applyAction(s, p!.seat, { t: 'ready_next', agree: true }, T0 + 5000);
+      if (!res.ok) throw new Error(res.error);
+      s = res.state;
+      deal = res.events.find((ev): ev is Extract<GameEvent, { t: 'deal' }> => ev.t === 'deal') ?? deal;
+    }
+
+    expect(deal).not.toBeNull();
+    expect(deal!.counts).toEqual([[0, 2], [1, 2], [2, 0], [3, 2]]);
+    expect(inherited.get(foldedSeat)).toHaveLength(HAND_SIZE);
+    for (const p of s.players) {
+      if (!p) continue;
+      const now = new Set(s.secret!.hands[p.seat].map((c) => c.id));
+      const kept = inherited.get(p.seat)!;
+      expect(s.secret!.hands[p.seat]).toHaveLength(HAND_SIZE);
+      for (const id of kept) expect(now.has(id)).toBe(true);
+      const dealt = deal!.counts.find(([seat]) => seat === p.seat)![1];
+      expect(dealt).toBe(HAND_SIZE - kept.length);
+    }
+    expect(cardTotal(s)).toBe(52);
+  });
 });
 
 describe('杂项校验', () => {
+  it(`房间最多 ${MAX_PLAYERS} 人，第五个真人和电脑都被拒绝`, () => {
+    expect(MAX_PLAYERS).toBe(4);
+    const s = createGameState('CAP1');
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      expect(addPlayer(s, `P${i}`).ok).toBe(true);
+    }
+    const human = addPlayer(s, '第五人');
+    const bot = addPlayer(s, '第五电脑', true);
+    expect(human).toEqual({ ok: false, error: `房间已满（最多 ${MAX_PLAYERS} 人）` });
+    expect(bot.ok).toBe(false);
+    expect(s.players.filter(Boolean)).toHaveLength(MAX_PLAYERS);
+  });
+
   it('错误的时机与角色被拒绝', () => {
     const { s, declarerSeat } = newGame(3);
     expect(tryAct(s, declarerSeat, { t: 'force_close_defense' })).toBeNull(); // 宣战者可以提前开始

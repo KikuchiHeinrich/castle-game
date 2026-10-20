@@ -38,6 +38,19 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* 仅对读屏可见：视觉上收成 1 像素，但仍留在无障碍树里（不能用 display:none / visibility:hidden） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 html,
 body,
 #app {
@@ -177,6 +190,21 @@ input[type='range']::-webkit-slider-thumb {
 }
 #drawer.open { right: 0; }
 #drawer h3 { color: var(--gold); font-size: 14px; margin: 8px 0; }
+#drawer .drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -4px 0 4px;
+  padding: 4px 0 6px;
+  background: var(--night-2);
+  border-bottom: 2px solid var(--wood-dark);
+}
+#drawer .drawer-head h3 { margin: 0; }
+#drawer .drawer-close { padding: 4px 10px; font-size: 12px; }
 #drawer table { width: 100%; border-collapse: collapse; font-size: 12px; }
 #drawer td { padding: 3px 4px; border-bottom: 1px solid #ffffff10; }
 #drawer td.rank { color: var(--dim); width: 28px; }

@@ -1,0 +1,66 @@
+[
+  {
+    "size": "320x568",
+    "buttonInBounds": true,
+    "cardsInBounds": true,
+    "clearance": 18.53125,
+    "headerClear": true,
+    "portraitClear": true,
+    "queryClearOfType": true,
+    "queryFull": true,
+    "queryHeight": 96.5,
+    "type": "一对",
+    "viewport": [
+      320,
+      568
+    ]
+  },
+  {
+    "size": "360x640",
+    "buttonInBounds": true,
+    "cardsInBounds": true,
+    "clearance": 16.5,
+    "headerClear": true,
+    "portraitClear": true,
+    "queryClearOfType": true,
+    "queryFull": true,
+    "queryHeight": 96.5,
+    "type": "一对",
+    "viewport": [
+      360,
+      640
+    ]
+  },
+  {
+    "size": "1280x600",
+    "buttonInBounds": true,
+    "cardsInBounds": true,
+    "clearance": 19.40625,
+    "headerClear": true,
+    "portraitClear": true,
+    "queryClearOfType": true,
+    "queryFull": true,
+    "queryHeight": 106,
+    "type": "一对",
+    "viewport": [
+      1280,
+      600
+    ]
+  },
+  {
+    "size": "1280x720",
+    "buttonInBounds": true,
+    "cardsInBounds": true,
+    "clearance": 23.7890625,
+    "headerClear": true,
+    "portraitClear": true,
+    "queryClearOfType": true,
+    "queryFull": true,
+    "queryHeight": 106,
+    "type": "一对",
+    "viewport": [
+      1280,
+      720
+    ]
+  }
+]
